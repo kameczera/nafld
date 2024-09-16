@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QMainWindow, QAction, QFileDialog, QLabel, QRubberBand, QToolBar
+from PyQt5.QtWidgets import QApplication, QMainWindow, QAction, QFileDialog, QLabel, QRubberBand, QToolBar, QTreeWidget, QTreeWidgetItem
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QPoint, QRect, QSize, pyqtSignal
 import cv2
@@ -8,7 +8,35 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy
 
-#TODO: Criar uma class para toolbar_image e para o menu
+# Classe ToolBarImages: Classe que mostra as imagens adicionadas pelo botao load, "croppadas" e do dataset Liver
+class ToolBarImages(QToolBar):
+    display = pyqtSignal(QPixmap)
+    
+
+    def __init__(self, images = None):
+        super().__init__("All Images")
+        self.images = images
+        self.folder_hierarchy = QTreeWidget()
+        self.folder_hierarchy.setHeaderHidden(True)
+        self.addWidget(self.folder_hierarchy)
+
+        # Fazendo o a extracao das imagens do formato images[0][n][m] para a hierarquia de pastas
+        for id_pacient,patient in enumerate(self.images):
+            for id_image,image in enumerate(patient):
+                self.open_image_patients(image,id_pacient,id_image)
+
+    def add_image_to_toolbar(self, name, pixmap):
+        image_bt_act = QAction(f'{name}', self)
+        image_bt_act.setStatusTip("Open Image")
+        self.addAction(image_bt_act)
+        image_bt_act.triggered.connect(lambda: self.display.emit(pixmap))
+
+    def open_image_patients(self, image, id_pacient, id_image):
+        height, width = image.shape
+        image_bytes = image.tobytes()
+        qImg = QImage(image_bytes, width, height, QImage.Format_Grayscale8)
+        pixmap = QPixmap.fromImage(qImg)
+        self.add_image_to_toolbar(f"patient{id_pacient}_image{id_image}", pixmap)
 
 class ImageLabel(QLabel):
     cropped = pyqtSignal(str, QPixmap)
@@ -22,9 +50,14 @@ class ImageLabel(QLabel):
         self.origin = QPoint()
         self.is_rubber_band_active = False
         self.count_cropped = 0
-    
+
+    def display_image(self, pixmap):
+        self.setPixmap(pixmap)
+        self.resize(434, 636)
+        self.is_rubber_band_active = True
 
     # Metodos ja setados para o funcionamento do rubberband (recorte de imagem)
+    # ------------------------------------------------------------------------------------------- #
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.is_rubber_band_active == True:
@@ -39,16 +72,22 @@ class ImageLabel(QLabel):
     def mouseReleaseEvent (self, event):
         self.rubber_band.hide()
         current_qrect = self.rubber_band.geometry()
-        self.rubber_band.deleteLater()
-        crop_qpixmap = self.pixmap().copy(current_qrect)
+        vertical_adjustment = -50 # Ajuste do vertical_adjustment (GAMBIARRA para nao ficar com o corte um pouco mais abaixo do selecionado)
+        adjusted_qrect = QRect(current_qrect.left(), current_qrect.top() + vertical_adjustment, 
+                           current_qrect.width(), current_qrect.height())
+        crop_qpixmap = self.pixmap().copy(adjusted_qrect)
         self.cropped.emit(f"output_{self.count_cropped}.png", crop_qpixmap) # Emissao dos parametros necessarios para a conexao ImageProcessor - ImageLabel add_image_to_toolbar 
+        self.count_cropped += 1
+    
+    # ------------------------------------------------------------------------------------------- #
 
 class ImageProcessor(QMainWindow):
-    def __init__(self, images=None):
+    def __init__(self, images = None):
         super().__init__()
         self.image_label = ImageLabel()
-        self.image_label.cropped.connect(self.add_image_to_toolbar) # Comunicacao ImageProcessor - ImageLabel
-        self.images = images
+        self.toolbar_images = ToolBarImages(images)
+        self.image_label.cropped.connect(self.toolbar_images.add_image_to_toolbar) # Comunicacao ImageLabel -> ToolbarImage
+        self.toolbar_images.display.connect(self.image_label.display_image) # Comunicacao ToolbarImage -> ImageLabel
         self.initUI()
 
     def initUI(self):
@@ -57,7 +96,9 @@ class ImageProcessor(QMainWindow):
         self.setMinimumWidth(800)
         self.setMinimumHeight(700)
 
-        # Menu bar
+        # Menubar
+        # TODO: Adicionar classe para o menubar (ou nao tmb pq ela é bem pequena)
+        # ------------------------------------------------------------------------------------------- #
 
         menubar = self.menuBar()
         fileMenu = menubar.addMenu('File')
@@ -69,7 +110,8 @@ class ImageProcessor(QMainWindow):
         crop_image = QAction('Crop Image', self)
         fileMenu.addAction(crop_image)
 
-        self.toolbar_images = QToolBar("All Images")
+        # ------------------------------------------------------------------------------------------- #
+
         self.addToolBar(Qt.LeftToolBarArea, self.toolbar_images)
 
         self.setCentralWidget(self.image_label)
@@ -87,26 +129,16 @@ class ImageProcessor(QMainWindow):
                 height, width = image.shape
                 qImg = QImage(image.data, width, height, QImage.Format_Grayscale8)
                 pixmap = QPixmap.fromImage(qImg)
-                self.add_image_to_toolbar(file_name, pixmap)
-    
-    def display_image(self, pixmap):
-        self.image_label.setPixmap(pixmap)
-        self.image_label.resize(434, 636)
-        self.image_label.is_rubber_band_active = True
+                self.toolbar_images.add_image_to_toolbar(file_name, pixmap)
 
-    def add_image_to_toolbar(self, name, pixmap):
-        image_bt_act = QAction(f'{name}', self)
-        image_bt_act.setStatusTip("Open Image")
-        self.toolbar_images.addAction(image_bt_act)
-        image_bt_act.triggered.connect(lambda: self.display_image(pixmap))
-
+# Funcao pegar dataset passado pelo professor
 def get_images_dataset():
     path_input_dir = Path("liver")
     path_data = path_input_dir / "dataset_liver_bmodes_steatosis_assessment_IJCARS.mat"
     data = scipy.io.loadmat(path_data)
     data.keys()
     data_array = data['data']
-    return data_array['images']
+    return data_array['images'][0]
 
 if __name__ == '__main__':
     liver_images = get_images_dataset()
