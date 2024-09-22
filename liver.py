@@ -17,35 +17,56 @@ class ToolBarImages(QToolBar):
         super().__init__("All Images")
         self.images = images
         self.folder_hierarchy = QTreeWidget()
-        self.folder_hierarchy.setHeaderHidden(True)
+        self.pixmap_dictionary = {}
         self.addWidget(self.folder_hierarchy)
+        self.folder_hierarchy.itemClicked.connect(self.display_image)
+        self.folder_hierarchy.setHeaderHidden(True)
+
+        self.cropped_imgs_node = QTreeWidgetItem(self.folder_hierarchy)
+        self.cropped_imgs_node.setText(0, f"Coleção de Cortes")
 
         # Fazendo o a extracao das imagens do formato images[0][n][m] para a hierarquia de pastas
         for id_pacient,patient in enumerate(self.images):
+            # Inicialização do nós Raizes (Nó dos pacientes)
+            patient_node = QTreeWidgetItem(self.folder_hierarchy)
+            patient_node.setText(0, f"Paciente {id_pacient}")
             for id_image,image in enumerate(patient):
-                self.open_image_patients(image,id_pacient,id_image)
+                self.open_image_patients(image, id_pacient, id_image, patient_node)
 
-    def add_image_to_toolbar(self, name, pixmap):
-        image_bt_act = QAction(f'{name}', self)
-        image_bt_act.setStatusTip("Open Image")
-        self.addAction(image_bt_act)
-        image_bt_act.triggered.connect(lambda: self.display.emit(pixmap))
+    def display_image(self, item, column):
+        # Deixar Nós raiz inclicáveis (nós com header de paciente)
+        if item.parent() is None:
+            return
+        # TODO: Nome dos nós folhas estranho. Mudar aqui
+        self.display.emit(self.pixmap_dictionary[f"{item.text(1)}-{item.text(2)}"])
 
-    def open_image_patients(self, image, id_pacient, id_image):
+    def open_image_patients(self, image, id_pacient, id_image, father):
+        # Inicialização dos nós Folhas (Imagens dos pacientes)
+        child_item = QTreeWidgetItem(father)
+        child_item.setText(0, f"Imagem {id_image}")
+        child_item.setText(1, str(id_pacient))
+        child_item.setText(2, str(id_image))
         height, width = image.shape
         image_bytes = image.tobytes()
-        qImg = QImage(image_bytes, width, height, QImage.Format_Grayscale8)
-        pixmap = QPixmap.fromImage(qImg)
-        self.add_image_to_toolbar(f"patient{id_pacient}_image{id_image}", pixmap)
+        q_img = QImage(image_bytes, width, height, QImage.Format_Grayscale8)
+        pixmap = QPixmap.fromImage(q_img)
+        self.pixmap_dictionary[f"{id_pacient}-{id_image}"] = pixmap
+    
+    def create_image_from_cropped(self, id_crop, crop_qpixmap):
+        child_item = QTreeWidgetItem(self.cropped_imgs_node)
+        child_item.setText(0, f"Corte {id_crop}")
+        child_item.setText(1, "C")
+        child_item.setText(2, str(id_crop))
+        self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
 
 class ImageLabel(QLabel):
-    cropped = pyqtSignal(str, QPixmap)
+    cropped = pyqtSignal(int, QPixmap)
 
     def __init__(self):
         super().__init__()
         # Tamanho das imagens .mat, setei como tamanho maximo do ImageLabel
-        self.setMaximumWidth(434)
-        self.setMaximumHeight(636)
+        self.setMaximumWidth(636)
+        self.setMaximumHeight(434)
         self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
         self.origin = QPoint()
         self.is_rubber_band_active = False
@@ -53,7 +74,7 @@ class ImageLabel(QLabel):
 
     def display_image(self, pixmap):
         self.setPixmap(pixmap)
-        self.resize(434, 636)
+        self.resize(636, 434)
         self.is_rubber_band_active = True
 
     # Metodos ja setados para o funcionamento do rubberband (recorte de imagem)
@@ -72,11 +93,10 @@ class ImageLabel(QLabel):
     def mouseReleaseEvent (self, event):
         self.rubber_band.hide()
         current_qrect = self.rubber_band.geometry()
-        vertical_adjustment = -50 # Ajuste do vertical_adjustment (GAMBIARRA para nao ficar com o corte um pouco mais abaixo do selecionado)
-        adjusted_qrect = QRect(current_qrect.left(), current_qrect.top() + vertical_adjustment, 
+        adjusted_qrect = QRect(current_qrect.left(), current_qrect.top(), 
                            current_qrect.width(), current_qrect.height())
         crop_qpixmap = self.pixmap().copy(adjusted_qrect)
-        self.cropped.emit(f"output_{self.count_cropped}.png", crop_qpixmap) # Emissao dos parametros necessarios para a conexao ImageProcessor - ImageLabel add_image_to_toolbar 
+        self.cropped.emit(self.count_cropped, crop_qpixmap) # Emissao dos parametros necessarios para a conexao ImageProcessor - ImageLabel add_image_to_toolbar 
         self.count_cropped += 1
     
     # ------------------------------------------------------------------------------------------- #
@@ -86,29 +106,29 @@ class ImageProcessor(QMainWindow):
         super().__init__()
         self.image_label = ImageLabel()
         self.toolbar_images = ToolBarImages(images)
-        self.image_label.cropped.connect(self.toolbar_images.add_image_to_toolbar) # Comunicacao ImageLabel -> ToolbarImage
+        self.image_label.cropped.connect(self.toolbar_images.create_image_from_cropped) # Comunicacao ImageLabel -> ToolbarImage
         self.toolbar_images.display.connect(self.image_label.display_image) # Comunicacao ToolbarImage -> ImageLabel
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle('Image Processing Application (IPA)')
         # Tamanho minimo da tela != Tamanho maximo da image_label
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(700)
+        self.setMinimumWidth(1000)
+        self.setMinimumHeight(800)
 
         # Menubar
         # TODO: Adicionar classe para o menubar (ou nao tmb pq ela é bem pequena)
         # ------------------------------------------------------------------------------------------- #
 
         menubar = self.menuBar()
-        fileMenu = menubar.addMenu('File')
+        file_menu = menubar.addMenu('File')
         open_file = QAction('Open Image', self)
         open_file.triggered.connect(self.open_image)
-        fileMenu.addAction(open_file)
+        file_menu.addAction(open_file)
 
-        fileMenu = menubar.addMenu('ROIs')
+        file_menu = menubar.addMenu('ROIs')
         crop_image = QAction('Crop Image', self)
-        fileMenu.addAction(crop_image)
+        file_menu.addAction(crop_image)
 
         # ------------------------------------------------------------------------------------------- #
 
@@ -127,8 +147,8 @@ class ImageProcessor(QMainWindow):
             else:
                 image = cv2.imread(file_name, cv2.IMREAD_GRAYSCALE)
                 height, width = image.shape
-                qImg = QImage(image.data, width, height, QImage.Format_Grayscale8)
-                pixmap = QPixmap.fromImage(qImg)
+                q_img = QImage(image.data, width, height, QImage.Format_Grayscale8)
+                pixmap = QPixmap.fromImage(q_img)
                 self.toolbar_images.add_image_to_toolbar(file_name, pixmap)
 
 # Funcao pegar dataset passado pelo professor
