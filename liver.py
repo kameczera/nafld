@@ -1,12 +1,14 @@
 import sys
 from pathlib import Path
-from PyQt5.QtWidgets import QApplication, QMainWindow, QAction, QFileDialog, QLabel, QRubberBand, QToolBar, QTreeWidget, QTreeWidgetItem
+from PyQt5.QtWidgets import QApplication, QMainWindow, QAction, QFileDialog, QLabel, QRubberBand, QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt, QPoint, QRect, QSize, pyqtSignal
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy
+import scipy.io
+import os
+import utility
 
 # Classe ToolBarImages: Classe que mostra as imagens adicionadas pelo botao load, "croppadas" e do dataset Liver
 class ToolBarImages(QToolBar):
@@ -54,7 +56,7 @@ class ToolBarImages(QToolBar):
     
     def create_image_from_cropped(self, id_crop, crop_qpixmap):
         child_item = QTreeWidgetItem(self.cropped_imgs_node)
-        child_item.setText(0, f"Corte {id_crop}")
+        child_item.setText(0, f"Corte {id_crop} ")
         child_item.setText(1, "C")
         child_item.setText(2, str(id_crop))
         self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
@@ -93,11 +95,14 @@ class ImageLabel(QLabel):
     def mouseReleaseEvent (self, event):
         self.rubber_band.hide()
         current_qrect = self.rubber_band.geometry()
-        adjusted_qrect = QRect(current_qrect.left(), current_qrect.top(), 
+        if current_qrect.width() > 1 and current_qrect.height() > 1:
+         adjusted_qrect = QRect(current_qrect.left(), current_qrect.top(), 
                            current_qrect.width(), current_qrect.height())
-        crop_qpixmap = self.pixmap().copy(adjusted_qrect)
-        self.cropped.emit(self.count_cropped, crop_qpixmap) # Emissao dos parametros necessarios para a conexao ImageProcessor - ImageLabel add_image_to_toolbar 
-        self.count_cropped += 1
+         crop_qpixmap = self.pixmap().copy(adjusted_qrect)
+         self.cropped.emit(self.count_cropped, crop_qpixmap) # Emissao dos parametros necessarios para a conexao ImageProcessor - ImageLabel add_image_to_toolbar 
+         self.count_cropped += 1
+        else:
+            utility.MessageBox.show_alert("Selecao da ROI muito pequena.")
     
     # ------------------------------------------------------------------------------------------- #
 
@@ -151,9 +156,23 @@ class ImageProcessor(QMainWindow):
                 pixmap = QPixmap.fromImage(q_img)
                 self.toolbar_images.add_image_to_toolbar(file_name, pixmap)
 
+ # Metodo para encontrar o diretorio desejado
+def find_directory(starting_dir, target_dir_name):
+    for root, dirs, files in os.walk(starting_dir):
+        if target_dir_name in dirs:
+            return os.path.join(root, target_dir_name)
+    return None
+
+
+
 # Funcao pegar dataset passado pelo professor
+
 def get_images_dataset():
-    path_input_dir = Path("liver")
+    #Colocar a localização da pasta "liver" para ajudar na procura da pasta
+    starting_dir = "C:/Users/andre/Desktop/CC/PAI/Trabalho/nafld/"
+    target_dir_name = "liver"
+    found_dir = find_directory(starting_dir, target_dir_name)
+    path_input_dir = Path(found_dir)
     path_data = path_input_dir / "dataset_liver_bmodes_steatosis_assessment_IJCARS.mat"
     data = scipy.io.loadmat(path_data)
     data.keys()
