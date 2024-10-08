@@ -3,7 +3,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtCore import Qt
 import scipy.io
-from include import utility, toolbar, image_viewer, menubar, crop_window
+from include import utility, toolbar, image_viewer, menubar, crop_window, histogram
 
 class ImageProcessor(QMainWindow):
     def __init__(self, images = None):
@@ -13,7 +13,10 @@ class ImageProcessor(QMainWindow):
         self.menubar = menubar.MenuBar()
         self.addToolBar(Qt.LeftToolBarArea, self.toolbar_images)
         self.image_viewer.cropped.connect(self.toolbar_images.create_image_from_cropped) # Comunicacao ImageViewer -> ToolbarImage
+
         self.toolbar_images.display.connect(self.image_viewer.display_image) # Comunicacao ToolbarImage -> ImageViewer
+        self.toolbar_images.display.connect(self.show_histogram) # Comunicacao ToolbarImage -> ImageViewer
+
         self.menubar.add_image.connect(self.toolbar_images.display_image) # Comunicacao ImageViewer -> ToolbarImages
         self.menubar.crop_signal.connect(self.open_crop_window) # Comunicacao MenuBar -> QMainWindow
         self.initUI()
@@ -26,6 +29,12 @@ class ImageProcessor(QMainWindow):
         self.setMinimumHeight(800)
         self.setCentralWidget(self.image_viewer)
         self.show()
+    
+    def show_histogram(self):
+        current_pixmap = self.image_viewer.get_pixmap()
+        if current_pixmap:
+            self.histogram = histogram.Histogram(current_pixmap)
+            self.histogram.show()
 
     def open_crop_window(self):
         current_pixmap = self.image_viewer.get_pixmap()
