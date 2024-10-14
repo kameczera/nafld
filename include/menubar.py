@@ -19,6 +19,8 @@ class MenuBar(QMenuBar):
         crop_image.triggered.connect(self.crop_signal.emit)
         file_menu.addAction(crop_image)
 
+        
+
     def open_image(self, file_name):
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getOpenFileName(self, "Abrir arquivo de Imagem", "", "Images (*.png *.jpg *.bmp *.mat);;All Files (*)", options=options)
