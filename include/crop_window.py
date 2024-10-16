@@ -13,7 +13,7 @@ class CropWindow(QWidget):
         self.view.setScene(self.scene)
         pixmap_item = QGraphicsPixmapItem(pixmap)
         self.scene.addItem(pixmap_item)
-        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self.view)
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
         self.origin = QPoint()
         self.count_cropped = 0
 

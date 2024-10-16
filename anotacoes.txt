@@ -1,2 +1,4 @@
 Calcule 4 GLCM radiais Ci onde i=1,2,4,8 pixels, para cada ROI.
 Duvida: Ele quer 4 matriz de coocorencia no qual eu testo a distancia de 1,2,4 a 8 pixels a direita? e para cada Ci, ele quer que eu testa todos os angulos(radiais)?
+
+Duvida2: as dimensões para fazer uma ROI devem ser restrita em 28x28?
