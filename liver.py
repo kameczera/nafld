@@ -9,7 +9,6 @@ from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPix
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
 import scipy.io
-from include import toolbar
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -23,6 +22,7 @@ class ProcessadorDeImagens(QMainWindow):
         self.toolbar_imagens = ToolBarImages(imagens)
         self.menubar = MenuBar()
         self.addToolBar(Qt.LeftToolBarArea, self.toolbar_imagens)
+
         self.visualizador_imagem.cropped.connect(self.toolbar_imagens.create_image_from_cropped)  # Comunicação ImageViewer -> ToolBarImage
 
         self.toolbar_imagens.display.connect(self.visualizador_imagem.display_image)  # Comunicação ToolBarImage -> ImageViewer
@@ -49,7 +49,7 @@ class ProcessadorDeImagens(QMainWindow):
             self.histograma = Histogram(pixmap_atual)
             self.histograma.show()
 
-    # Interface GLCM Raízes ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    # Interface GLCM Raízes -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     def VisualizadorGLCM(self, imagem):
         distancias = [1, 2, 4, 8]
         rotulos_distancias = ['1', '2', '4', '8']
@@ -125,15 +125,16 @@ class CropWindow(QWidget):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.rubber_band.hide()
-            rubber_band_rect = self.rubber_band.geometry()
-            scene_rect = self.view.mapToScene(rubber_band_rect).boundingRect()
-            pixmap_item = self.scene.items()[0]
-            original_pixmap = pixmap_item.pixmap()
-            cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
-            self.cropped.emit(self.count_cropped, cropped_pixmap)
-            self.count_cropped += 1
-#Menu Bar ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+         self.rubber_band.hide()
+         rubber_band_rect = self.rubber_band.geometry()
+         scene_rect = self.view.mapToScene(rubber_band_rect).boundingRect()
+         pixmap_item = self.scene.items()[0]
+         original_pixmap = pixmap_item.pixmap()
+         cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
+         self.cropped.emit(self.count_cropped, cropped_pixmap)
+         self.count_cropped += 1
+         
+#Menu Bar -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class MenuBar(QMenuBar):
     add_image = pyqtSignal(str, QPixmap)
     crop_signal = pyqtSignal()
@@ -162,7 +163,8 @@ class MenuBar(QMenuBar):
                 height, width = image.shape
                 q_img = QImage(image.data, width, height, QImage.Format_Grayscale8)
                 pixmap = QPixmap.fromImage(q_img)
-                self.add_image.emit(file_name, pixmap)          
+                self.add_image.emit(file_name, pixmap)       
+
 
  #Histograma---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class Histogram(QWidget):
@@ -203,6 +205,7 @@ class Histogram(QWidget):
 
         return arr
     
+
  #Imagem Viewer ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class ImageViewer(QGraphicsView):
     cropped = pyqtSignal(int, QPixmap)
@@ -351,7 +354,9 @@ class ImageViewer(QGraphicsView):
         
         return -1
     
-# Classe ToolBarImages: Classe que mostra as imagens adicionadas pelo botao load, "croppadas" e do dataset Liver
+
+
+# Classe ToolBarImages: Classe que mostra as imagens adicionadas pelo botao load, "croppadas" e do dataset Liver -----------------------------------------------------------------------------------------------------------
 class ToolBarImages(QToolBar):
     display = pyqtSignal(QPixmap)
     
@@ -409,6 +414,8 @@ class ToolBarImages(QToolBar):
         child_item.setText(1, "C")
         child_item.setText(2, str(id_crop))
         self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
+
+
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def obter_conjunto_imagens():
