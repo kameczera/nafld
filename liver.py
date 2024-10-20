@@ -6,7 +6,7 @@ from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow
-from PyQt5.QtGui import QPixmap, QColor
+from PyQt5.QtGui import QPixmap, QColor,QPainter
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
 import scipy.io
 from include import utility, toolbar, image_viewer, menubar, histogram
@@ -76,7 +76,7 @@ class ProcessadorDeImagens(QMainWindow):
     def abrir_janela_crop(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         if pixmap_atual:
-            self.janela_crop = crop_window.CropWindow(pixmap_atual)
+            self.janela_crop = CropWindow(pixmap_atual)
             self.janela_crop.show()
 
 
@@ -101,9 +101,8 @@ class CropWindow(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.view)
         self.setLayout(layout)
-        # Define a cor do QRubberBand para verde
-        self.rubber_band.setStyleSheet("background-color: rgba(0, 255, 0, 100);")
         self.show()
+        
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -112,9 +111,14 @@ class CropWindow(QWidget):
             self.rubber_band.show()
     
     def mouseMoveEvent(self, event):
-        if not self.origin.isNull() and self.rubber_band.isVisible():
-            # Mantém a área de seleção fixa em 28x28
-            self.rubber_band.setGeometry(QRect(self.origin, QSize(28, 28)))
+     if not self.origin.isNull() and self.rubber_band.isVisible():
+        # Calcula o tamanho atual do retângulo de seleção
+        current_rect = QRect(self.origin, event.pos()).normalized()
+        
+        # Limita o tamanho do retângulo para 28x28 pixels
+        size = min(current_rect.width(), 28), min(current_rect.height(), 28)
+        limited_rect = QRect(self.origin, QSize(*size))
+        self.rubber_band.setGeometry(limited_rect)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -126,7 +130,6 @@ class CropWindow(QWidget):
             cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
             self.cropped.emit(self.count_cropped, cropped_pixmap)
             self.count_cropped += 1
-
 
 
 def obter_conjunto_imagens():
