@@ -3,13 +3,13 @@
 
 import sys
 from pathlib import Path
-from skimage.feature import graycomatrix
-from skimage.feature import graycoprops
+from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
-from PyQt5.QtWidgets import QApplication, QMainWindow
-from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow
+from PyQt5.QtGui import QPixmap, QColor
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
 import scipy.io
-from include import utility, toolbar, image_viewer, menubar, crop_window, histogram
+from include import utility, toolbar, image_viewer, menubar, histogram
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -48,61 +48,85 @@ class ProcessadorDeImagens(QMainWindow):
 
     # Interface GLCM Raízes ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     def VisualizadorGLCM(self, imagem):
-        self.imagem = imagem
-        self.distancias = [1, 2, 4, 8]
-        self.angulo = 0
-        self.rotulos_distancias = ['1', '2', '4', '8']
+        distancias = [1, 2, 4, 8]
+        rotulos_distancias = ['1', '2', '4', '8']
+        fig, axs = plt.subplots(2, 2, figsize=(10, 8))
 
-        self.fig, self.axs = plt.subplots(2, 2, figsize=(10, 8))
-        self.atualizar_graficos()
-      
-        plt.subplots_adjust(bottom=0.2)
-        plt.show()
-
-    def atualizar_graficos(self):
-        for ax in self.axs.flatten():
+        for ax in axs.flatten():
             ax.clear()
 
-        # Itera sobre as distâncias e exibe os gráficos para cada uma
-        for d_idx, distancia in enumerate(self.distancias):
-            glcm = graycomatrix(self.imagem, distances=[distancia], angles=[self.angulo], normed=True)
+        for d_idx, distancia in enumerate(distancias):
+            glcm = graycomatrix(imagem, distances=[distancia], angles=[0], normed=True)
             glcm_homogeneidade = graycoprops(glcm, 'homogeneity')[0, 0]
-            glcm_normed2D = glcm[:, :, 0, 0]
-            glcm_flattened = glcm_normed2D.ravel()  # Achata para ficar um vetor de probabilidade
+            glcm_flattened = glcm[:, :, 0, 0].ravel()
             glcm_entropia = entropy(glcm_flattened, base=2)
-            ax = self.axs.flatten()[d_idx]
-            ax.set_title(f'Distância {self.rotulos_distancias[d_idx]}\n'
+            ax = axs.flatten()[d_idx]
+            ax.set_title(f'Distância {rotulos_distancias[d_idx]}\n'
                          f'Homogeneidade: {glcm_homogeneidade:.4f}, Entropia: {glcm_entropia:.4f}')
             ax.axis('off')
         
         plt.suptitle('GLCM')
-        plt.draw()
+        plt.show()
 
-
-    def proxima_pagina(self, event):
-        if self.pagina_atual < self.total_paginas - 1:
-            self.pagina_atual += 1
-            self.atualizar_graficos()
-
-    def pagina_anterior(self, event):
-        if self.pagina_atual > 0:
-            self.pagina_atual -= 1
-            self.atualizar_graficos()
-    
-    # FIM Interface GLCM Raízes ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------  
-    
     def calcular_coocorenciaRadiais(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         imagem = self.histograma.qpixmap_to_numpy(pixmap_atual)
-        visualizador = self.VisualizadorGLCM(imagem)
+        self.VisualizadorGLCM(imagem)
     
-    # FIM Interface GLCM Raízes ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
     def abrir_janela_crop(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         if pixmap_atual:
             self.janela_crop = crop_window.CropWindow(pixmap_atual)
             self.janela_crop.show()
+
+
+class CropWindow(QWidget):
+    cropped = pyqtSignal(int, QPixmap)
+    
+    def __init__(self, pixmap):
+        super().__init__()
+        self.view = QGraphicsView()
+        self.scene = QGraphicsScene(self.view)
+        self.view.setScene(self.scene)
+        pixmap_item = QGraphicsPixmapItem(pixmap)
+        self.scene.addItem(pixmap_item)
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+        self.origin = QPoint()
+        self.count_cropped = 0
+
+        self.initUI()
+    
+    def initUI(self):
+        self.setWindowTitle("Recorte de Imagem")
+        layout = QVBoxLayout()
+        layout.addWidget(self.view)
+        self.setLayout(layout)
+        # Define a cor do QRubberBand para verde
+        self.rubber_band.setStyleSheet("background-color: rgba(0, 255, 0, 100);")
+        self.show()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.origin = event.pos()
+            self.rubber_band.setGeometry(QRect(self.origin, QSize(28, 28)))
+            self.rubber_band.show()
+    
+    def mouseMoveEvent(self, event):
+        if not self.origin.isNull() and self.rubber_band.isVisible():
+            # Mantém a área de seleção fixa em 28x28
+            self.rubber_band.setGeometry(QRect(self.origin, QSize(28, 28)))
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.rubber_band.hide()
+            rubber_band_rect = self.rubber_band.geometry()
+            scene_rect = self.view.mapToScene(rubber_band_rect).boundingRect()
+            pixmap_item = self.scene.items()[0]
+            original_pixmap = pixmap_item.pixmap()
+            cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
+            self.cropped.emit(self.count_cropped, cropped_pixmap)
+            self.count_cropped += 1
+
 
 
 def obter_conjunto_imagens():
