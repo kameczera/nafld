@@ -50,45 +50,34 @@ class ProcessadorDeImagens(QMainWindow):
     def VisualizadorGLCM(self, imagem):
         self.imagem = imagem
         self.distancias = [1, 2, 4, 8]
-        self.angulos = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
-        self.rotulos_angulos = ['0°', '45°', '90°', '135°']
-        self.pagina_atual = 0
-
-        self.total_paginas = len(self.distancias)
+        self.angulo = 0
+        self.rotulos_distancias = ['1', '2', '4', '8']
 
         self.fig, self.axs = plt.subplots(2, 2, figsize=(10, 8))
         self.atualizar_graficos()
       
         plt.subplots_adjust(bottom=0.2)
-        self.botao_anterior = plt.Button(plt.axes([0.35, 0.05, 0.1, 0.075]), 'Anterior')
-        self.botao_proximo = plt.Button(plt.axes([0.55, 0.05, 0.1, 0.075]), 'Próximo')
-
-        self.botao_anterior.on_clicked(self.pagina_anterior)
-        self.botao_proximo.on_clicked(self.proxima_pagina)
         plt.show()
 
     def atualizar_graficos(self):
         for ax in self.axs.flatten():
             ax.clear()
 
-        # Obtém a distância atual
-        distancia = self.distancias[self.pagina_atual]
-
-        for a_idx, angulo in enumerate(self.angulos):
-            glcm = graycomatrix(self.imagem, distances=[distancia], angles=[angulo], normed=True)
+        # Itera sobre as distâncias e exibe os gráficos para cada uma
+        for d_idx, distancia in enumerate(self.distancias):
+            glcm = graycomatrix(self.imagem, distances=[distancia], angles=[self.angulo], normed=True)
             glcm_homogeneidade = graycoprops(glcm, 'homogeneity')[0, 0]
             glcm_normed2D = glcm[:, :, 0, 0]
             glcm_flattened = glcm_normed2D.ravel()  # Achata para ficar um vetor de probabilidade
             glcm_entropia = entropy(glcm_flattened, base=2)
-
-            ax = self.axs.flatten()[a_idx]
-            ax.imshow(glcm[:, :, 0, 0], cmap='coolwarm')
-            ax.set_title(f'Distância {distancia},     Ângulo {self.rotulos_angulos[a_idx]}\n'
-                         f'Homogeneidade: {glcm_homogeneidade:.4f},      Entropia: {glcm_entropia:.4f}')
+            ax = self.axs.flatten()[d_idx]
+            ax.set_title(f'Distância {self.rotulos_distancias[d_idx]}\n'
+                         f'Homogeneidade: {glcm_homogeneidade:.4f}, Entropia: {glcm_entropia:.4f}')
             ax.axis('off')
-
-        plt.suptitle(f'GLCM para Distância {distancia}')
+        
+        plt.suptitle('GLCM')
         plt.draw()
+
 
     def proxima_pagina(self, event):
         if self.pagina_atual < self.total_paginas - 1:
