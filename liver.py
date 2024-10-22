@@ -127,12 +127,7 @@ class MomentHu(QWidget):
             # Calcular os Momentos de Hu
             hu_moments = cv2.HuMoments(momentos_centrais).flatten()
             
-            # Criar texto para exibição
-            texto = "Momentos Centrais:\n"
-            for key, value in momentos_centrais.items():
-                texto += f"{key}: {value:.4f}\n"
-            
-            texto += "\nMomentos de Hu:\n"
+            texto = "\nMomentos de Hu:\n"
             for i, value in enumerate(hu_moments):
                 texto += f'Hu[{i + 1}]: {value:.4e}\n'  # Usando notação científica
             
