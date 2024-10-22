@@ -85,7 +85,7 @@ class ProcessadorDeImagens(QMainWindow):
 
     def calcular_coocorenciaRadiais(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
-        imagem = self.histograma.qpixmap_to_numpy(pixmap_atual)
+        imagem = self.qpixmap_to_numpy(pixmap_atual)
         self.VisualizadorGLCM(imagem)
     
     def abrir_janela_crop(self):
@@ -93,6 +93,17 @@ class ProcessadorDeImagens(QMainWindow):
         if pixmap_atual:
             self.janela_crop = CropWindow(pixmap_atual)
             self.janela_crop.show()
+
+    def qpixmap_to_numpy(self, pixmap):
+        qimage = pixmap.toImage()
+        width = qimage.width()
+        height = qimage.height()
+        
+        ptr = qimage.bits()
+        ptr.setsize(height * width)
+        arr = np.array(ptr).reshape((height, width))
+
+        return arr            
 
 
 
