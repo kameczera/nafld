@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
-from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem,QLabel
+from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
 import scipy.io
@@ -33,6 +33,7 @@ class ProcessadorDeImagens(QMainWindow):
         self.menubar.crop_signal.connect(self.abrir_janela_crop)  # Comunicação MenuBar -> QMainWindow
         self.menubar.glcm_signal.connect(self.calcular_coocorenciaRadiais)
         self.menubar.histograma_signal.connect(self.mostrar_histograma)
+        self.menubar.save_signal.connect(self.toolbar_imagens.save_all_crops)
 
         self.initUI()
 
@@ -95,7 +96,8 @@ class CropWindow(QWidget):
         self.view.setScene(self.scene)
         pixmap_item = QGraphicsPixmapItem(pixmap)
         self.scene.addItem(pixmap_item)
-        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self.view)  # Corrigido para usar self.view
+        self.current_rect = QRect()
         self.origin = QPoint()
         self.count_cropped = 0
 
@@ -107,34 +109,35 @@ class CropWindow(QWidget):
         layout.addWidget(self.view)
         self.setLayout(layout)
         self.show()
-        
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.origin = event.pos()
-            self.rubber_band.setGeometry(QRect(self.origin, QSize(28, 28)))
+            self.origin = self.view.mapToScene(event.pos()).toPoint()
+            self.rubber_band.setGeometry(self.current_rect)
             self.rubber_band.show()
-    
+
     def mouseMoveEvent(self, event):
-     if not self.origin.isNull() and self.rubber_band.isVisible():
-        # Calcula o tamanho atual do retângulo de seleção
-        current_rect = QRect(self.origin, event.pos()).normalized()
-        
-        # Limita o tamanho do retângulo para 28x28 pixels
-        size = min(current_rect.width(), 28), min(current_rect.height(), 28)
-        limited_rect = QRect(self.origin, QSize(*size))
-        self.rubber_band.setGeometry(limited_rect)
+        if not self.origin.isNull():
+            current_pos = self.view.mapToScene(event.pos()).toPoint()
+            self.current_rect = QRect(self.origin, current_pos)
+            self.current_rect = self.current_rect.normalized()  # Ajusta para evitar retângulos invertidos
+            self.rubber_band.setGeometry(self.current_rect)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-         self.rubber_band.hide()
-         rubber_band_rect = self.rubber_band.geometry()
-         scene_rect = self.view.mapToScene(rubber_band_rect).boundingRect()
-         pixmap_item = self.scene.items()[0]
-         original_pixmap = pixmap_item.pixmap()
-         cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
-         self.cropped.emit(self.count_cropped, cropped_pixmap)
-         self.count_cropped += 1
+            self.rubber_band.hide()
+            rubber_band_rect = self.rubber_band.geometry()
+
+            if rubber_band_rect.width() > 1 and rubber_band_rect.height() > 1:
+                # Mapeia a área selecionada para a cena
+                scene_rect = self.view.mapToScene(rubber_band_rect).boundingRect()
+                pixmap_item = self.scene.items()[0]
+                original_pixmap = pixmap_item.pixmap()
+
+                # Recorta a imagem com base na área selecionada
+                cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
+                self.cropped.emit(self.count_cropped, cropped_pixmap)
+                self.count_cropped += 1
          
 #Menu Bar -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class MenuBar(QMenuBar):
@@ -142,6 +145,7 @@ class MenuBar(QMenuBar):
     crop_signal = pyqtSignal()
     glcm_signal = pyqtSignal() 
     histograma_signal = pyqtSignal()
+    save_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -154,6 +158,10 @@ class MenuBar(QMenuBar):
         crop_image = QAction('Recortar Imagem', self)
         crop_image.triggered.connect(self.crop_signal.emit)
         file_menu.addAction(crop_image)
+        
+        save_rois = QAction('Salvar ROIs', self)
+        save_rois.triggered.connect(self.save_signal.emit)
+        file_menu.addAction(save_rois)
 
         # Menu GLCM Descritores
         glcm_menu = self.addMenu('GLCM Descritores')
@@ -223,7 +231,7 @@ class Histogram(QWidget):
 
  #Imagem Viewer ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class ImageViewer(QGraphicsView):
-    cropped = pyqtSignal(int, QPixmap)
+    cropped = pyqtSignal(int, QPixmap, int, int, int, int)
 
     def __init__(self):
         super().__init__()
@@ -250,9 +258,13 @@ class ImageViewer(QGraphicsView):
 
         self.setScene(self.scene)
 
-        self.count_cropped = 0
+        # Guardar o paciente e imagem do crop
+        self.pacient_n = 0
+        self.image_n = 0
+        self.crop_n = 0
 
-    def display_image(self, pixmap):
+    def display_image(self, pixmap, name):
+        self.pacient_n, self.image_n = map(str, name.split("-"))
         self.enable_cropping = True
         self.scene.clear()
         self.resetTransform()
@@ -278,6 +290,7 @@ class ImageViewer(QGraphicsView):
         self.direction = self.click_near_border(event.pos())
     
         # Usuário clicando na borda do rubber band? -> Se sim, ativar Resize
+        # Obs: Resize desativado porque sao ROIs 28x28 tamanho fixo
         if event.button() == Qt.LeftButton and self.direction != -1:
             self.is_resizing_rb = True
     
@@ -287,7 +300,6 @@ class ImageViewer(QGraphicsView):
 
     # Usuário está criando um novo quadrado? -> Se sim, criar um novo quadrado
         elif event.button() == Qt.LeftButton and self.enable_cropping:
-        # Define a dimensão fixa de 28x28 pixels
             self.current_rect = QRect(self.origin, QSize(28, 28))
             self.rubber_band.setGeometry(self.current_rect)
             self.rubber_band.show()
@@ -307,52 +319,58 @@ class ImageViewer(QGraphicsView):
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
 
-    # Dimensionando o rubber band
-        elif self.is_resizing_rb or not self.origin.isNull() and self.enable_cropping:
-            new_width = min(28, abs(event.pos().x() - self.origin.x()))
-            new_height = min(28, abs(event.pos().y() - self.origin.y()))
-
-        # Ajusta as coordenadas do retângulo conforme o movimento do mouse, limitando a 28x28
-            self.current_rect = QRect(self.origin, QSize(new_width, new_height))
-            self.current_rect = self.current_rect.normalized()  # Ajusta para evitar retângulos invertidos
-            self.rubber_band.setGeometry(self.current_rect)
-    
-    # Transladando o rubber band
+        # Dimensionando o rubber band
+        elif self.is_resizing_rb:
+            match self.direction:
+                case 1:
+                    self.current_rect.setRight(event.pos().x())
+                case 2:
+                    self.current_rect.setTop(event.pos().y())
+                case 3:
+                    self.current_rect.setLeft(event.pos().x())
+                case 4:
+                    self.current_rect.setBottom(event.pos().y())
+            self.rubber_band.setGeometry(self.current_rect.normalized())
+        # Transladando o rubber band
         elif self.is_translating:
             delta = event.pos() - self.last_mouse_pos
             self.current_rect.translate(delta)
             self.rubber_band.setGeometry(self.current_rect.normalized())
             self.last_mouse_pos = event.pos()
+        else:
+            self.current_rect = QRect(self.origin, event.pos())
+            self.current_rect = self.current_rect.normalized()  # Ajusta para evitar retângulos invertidos
+            self.rubber_band.setGeometry(self.current_rect)
 
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            rubber_band_rect = self.rubber_band.geometry()
-        if rubber_band_rect.width() <= 28 and rubber_band_rect.height() <= 28:
-            scene_rect = self.mapToScene(rubber_band_rect).boundingRect()
-            pixmap_item = self.scene.items()[0]
-            original_pixmap = pixmap_item.pixmap()
-            cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
-            self.cropped.emit(self.count_cropped, cropped_pixmap)
-            self.count_cropped += 1
+        self.is_dragging = False
+        self.is_translating = False
+        self.is_resizing_rb = False
         # else:
         #     utility.MessageBox.show_alert("Selecao da ROI muito pequena.")
-        elif event.button() == Qt.RightButton:
-            self.is_dragging = False
-            self.is_translating = False
-            self.is_resizing_rb = False
+        if event.button() == Qt.RightButton:
+            
             self.setCursor(Qt.ArrowCursor)
 
         super().mouseReleaseEvent(event)
 
-
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            rubber_band_rect = self.rubber_band.geometry()
+            scene_rect = self.mapToScene(rubber_band_rect).boundingRect()
+            pixmap_item = self.scene.items()[0]
+            original_pixmap = pixmap_item.pixmap()
+            cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
+            self.cropped.emit(self.crop_n, cropped_pixmap, int(self.pacient_n), int(self.image_n), int(rubber_band_rect.x()), int(rubber_band_rect.y()))
+            self.crop_n += 1
     # ------------------------------------------------------------------------------------------- #
 
     def click_near_border(self, pos):
         band_rect = self.rubber_band.geometry()
 
-        margin = 10 # Margem de detecção de proximidade de borda (Mudar caso necessário)
+        margin = 5 # Margem de detecção de proximidade de borda (Mudar caso necessário)
 
         # Rosa dos ventos (Leste, Norte, Oeste, Sul - 1, 2, 3, 4) simplesmente para deixar o código mais eficiente, se tiver muito ilegível mudar
         if (abs(pos.x() - band_rect.right()) < margin): return 1 
@@ -366,7 +384,7 @@ class ImageViewer(QGraphicsView):
 
 # Classe ToolBarImages: Classe que mostra as imagens adicionadas pelo botao load, "croppadas" e do dataset Liver -----------------------------------------------------------------------------------------------------------
 class ToolBarImages(QToolBar):
-    display = pyqtSignal(QPixmap)
+    display = pyqtSignal(QPixmap, str)
     
 
     def __init__(self, images = None):
@@ -402,7 +420,7 @@ class ToolBarImages(QToolBar):
         if item.parent() is None:
             return
         # TODO: Nome dos nós folhas estranho. Mudar aqui
-        self.display.emit(self.pixmap_dictionary[f"{item.text(1)}-{item.text(2)}"])
+        self.display.emit(self.pixmap_dictionary[f"{item.text(1)}-{item.text(2)}"], f"{item.text(1)}-{item.text(2)}")
 
     def open_image_patients(self, image, id_pacient, id_image, father):
         # Inicialização dos nós Folhas (Imagens dos pacientes)
@@ -416,14 +434,49 @@ class ToolBarImages(QToolBar):
         pixmap = QPixmap.fromImage(q_img)
         self.pixmap_dictionary[f"{id_pacient}-{id_image}"] = pixmap
     
-    def create_image_from_cropped(self, id_crop, crop_qpixmap):
+    def create_image_from_cropped(self, id_crop, crop_qpixmap, pacient_n, image_n, coord_x, coord_y):
         child_item = QTreeWidgetItem(self.cropped_imgs_node)
-        child_item.setText(0, f"Corte {id_crop} ")
-        child_item.setText(1, "C")
+        child_item.setText(0, f"ROI_{pacient_n}_{image_n}")
+        child_item.setText(1, f"C")
         child_item.setText(2, str(id_crop))
+        child_item.setText(3, f"{coord_x},{coord_y}")
+
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Question)
+        msg.setText("Informe o órgao dessa imagem")
+        msg.setWindowTitle("Recorte")
+        
+        button_liver = msg.addButton("Fígado", QMessageBox.liver)
+        button_cortex = msg.addButton("Cortex Renal", QMessageBox.cortex)
+        button_kidney = msg.addButton("Rim", QMessageBox.kidney)
+
+        msg.exec_()
+
+        if msg.clickedButton() == button_liver:
+            child_item.setText(4, f"liver")
+        elif msg.clickedButton() == button_cortex:
+            child_item.setText(4, f"cortex")
+        elif msg.clickedButton() == button_kidney:
+            child_item.setText(4, f"kidney")
+
         self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
-
-
+    
+    def save_all_crops(self):
+        for i in range(self.cropped_imgs_node):
+            node = self.cropped_imgs_node.child(i)
+            pixmap = self.pixmap_dictionary[f"{node.text(1)}-{node.text(2)}"]
+            
+            pixmap_item = QGraphicsPixmapItem(pixmap)
+    
+            bounding_rect = pixmap_item.boundingRect()
+            
+            height = pixmap.height()
+            width = pixmap.width()
+            
+            print(f"Imagem: {key}")
+            print(f"Canto superior esquerdo: ({coord_x},{coord_y})")
+            print(f"Altura: {height}, Comprimento: {width}")
+            print("-" * 30)
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def obter_conjunto_imagens():
