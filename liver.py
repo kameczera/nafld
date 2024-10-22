@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
-from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem,QLabel
+from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem,QLabel,QTextEdit
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
 import scipy.io
@@ -21,35 +21,45 @@ class ProcessadorDeImagens(QMainWindow):
         self.visualizador_imagem = ImageViewer()
         self.toolbar_imagens = ToolBarImages(imagens)
         self.menubar = MenuBar()
+        
+        # Inicializar o MomentHu com referências ao visualizador e histograma
+        self.momentHu = MomentHu(self.visualizador_imagem)  # Passar apenas visualizador_imagem
+
+        
         self.addToolBar(Qt.LeftToolBarArea, self.toolbar_imagens)
 
         self.visualizador_imagem.cropped.connect(self.toolbar_imagens.create_image_from_cropped)  # Comunicação ImageViewer -> ToolBarImage
-
         self.toolbar_imagens.display.connect(self.visualizador_imagem.display_image)  # Comunicação ToolBarImage -> ImageViewer
-        #self.toolbar_imagens.display.connect(self.mostrar_histograma)  # Comunicação ToolBarImage -> ImageViewer
-        #self.toolbar_imagens.display.connect(self.calcular_coocorenciaRadiais)
 
         self.menubar.add_image.connect(self.toolbar_imagens.display_image)  # Comunicação ImageViewer -> ToolBarImages
         self.menubar.crop_signal.connect(self.abrir_janela_crop)  # Comunicação MenuBar -> QMainWindow
         self.menubar.glcm_signal.connect(self.calcular_coocorenciaRadiais)
         self.menubar.histograma_signal.connect(self.mostrar_histograma)
+        self.menubar.momento_Hu_signal.connect(self.exibir_momento_hu)  # Conectar o sinal ao método que irá definir o histograma
 
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle('Aplicação de Processamento de Imagens (API)')
-        # Tamanho mínimo da tela != Tamanho máximo do visualizador de imagens
         self.setMenuBar(self.menubar)
         self.setMinimumWidth(1000)
         self.setMinimumHeight(800)
         self.setCentralWidget(self.visualizador_imagem)
         self.show()
-    
+
     def mostrar_histograma(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         if pixmap_atual:
             self.histograma = Histogram(pixmap_atual)
             self.histograma.show()
+
+    def exibir_momento_hu(self):
+        # Agora, a função MomentHu irá funcionar corretamente
+        self.momentHu.momentos_invariantes_Hu()
+        self.momentHu.show()
+
+    # O restante da sua classe ProcessadorDeImagens permanece o mesmo
+
 
     # Interface GLCM Raízes -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     def VisualizadorGLCM(self, imagem):
@@ -83,6 +93,71 @@ class ProcessadorDeImagens(QMainWindow):
         if pixmap_atual:
             self.janela_crop = CropWindow(pixmap_atual)
             self.janela_crop.show()
+
+
+
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTextEdit
+import numpy as np
+import cv2
+
+class MomentHu(QWidget):
+    def __init__(self, visualizador_imagem):
+        super().__init__()
+        
+        self.visualizador_imagem = visualizador_imagem
+        
+        # Configurar o layout
+        self.layout = QVBoxLayout(self)
+        
+        # Criar um QTextEdit para exibir os momentos
+        self.text_edit = QTextEdit(self)
+        self.text_edit.setReadOnly(True)  # Define como somente leitura
+        self.layout.addWidget(self.text_edit)
+
+    def momentos_invariantes_Hu(self):
+        # Obter a imagem do visualizador
+        pixmap_atual = self.visualizador_imagem.get_pixmap()
+        imagem = self.qpixmap_to_numpy(pixmap_atual)  # Converter QPixmap para numpy
+        
+        if imagem is not None:
+
+            # Calcular os momentos centrais
+            momentos_centrais = cv2.moments(imagem)
+            
+            # Calcular os Momentos de Hu
+            hu_moments = cv2.HuMoments(momentos_centrais).flatten()
+            
+            # Criar texto para exibição
+            texto = "Momentos Centrais:\n"
+            for key, value in momentos_centrais.items():
+                texto += f"{key}: {value:.4f}\n"
+            
+            texto += "\nMomentos de Hu:\n"
+            for i, value in enumerate(hu_moments):
+                texto += f'Hu[{i + 1}]: {value:.4e}\n'  # Usando notação científica
+            
+            # Exibir os dados no QTextEdit
+            self.text_edit.setPlainText(texto)
+        else:
+            print("Erro: A imagem não pôde ser convertida.")
+
+    def qpixmap_to_numpy(self, pixmap):
+        qimage = pixmap.toImage()
+        width = qimage.width()
+        height = qimage.height()
+        
+        ptr = qimage.bits()
+        ptr.setsize(height * width)
+        arr = np.array(ptr).reshape((height, width))
+
+        return arr
+
+
+
+
+
+
+    
 
 #Corte das Imagens
 class CropWindow(QWidget):
@@ -142,6 +217,7 @@ class MenuBar(QMenuBar):
     crop_signal = pyqtSignal()
     glcm_signal = pyqtSignal() 
     histograma_signal = pyqtSignal()
+    momento_Hu_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -166,6 +242,12 @@ class MenuBar(QMenuBar):
         histograma_action = QAction('Mostrar Histograma', self)
         histograma_action.triggered.connect(self.histograma_signal.emit)  # Emitindo sinal para GLCM
         histograma_menu.addAction(histograma_action)
+
+        #Menu Momento de Hu
+        momento_hu_menu = self.addMenu('Momentos Invariantes de Hu')
+        momento_hu_action = QAction('Mostrar Dados',self)
+        momento_hu_action.triggered.connect(self.momento_Hu_signal.emit)
+        momento_hu_menu.addAction(momento_hu_action)
         
 
     def open_image(self, file_name):
