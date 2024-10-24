@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
-from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit
+from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
 import scipy.io
@@ -159,68 +159,98 @@ class MomentHu(QWidget):
 
         return arr
 
-
-
-
-
-
-    
-
-#Corte das Imagens
 class CropWindow(QWidget):
-    cropped = pyqtSignal(int, QPixmap)
+    cropped = pyqtSignal(QPixmap)
     
-    def __init__(self, pixmap):
+    def __init__(self, organ_images):
         super().__init__()
         self.view = QGraphicsView()
         self.scene = QGraphicsScene(self.view)
         self.view.setScene(self.scene)
-        pixmap_item = QGraphicsPixmapItem(pixmap)
-        self.scene.addItem(pixmap_item)
-        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self.view)  # Corrigido para usar self.view
-        self.current_rect = QRect()
-        self.origin = QPoint()
-        self.count_cropped = 0
 
-        self.initUI()
+        self.initUI(organ_images)
     
-    def initUI(self):
+    def initUI(self, organ_images):
         self.setWindowTitle("Recorte de Imagem")
         layout = QVBoxLayout()
+
+        # Crie um layout horizontal para as imagens
+        images_layout = QHBoxLayout()
+
+        for organ, data in organ_images.items():
+            pixmap = data["pixmap"]
+            coords = data["coords"]
+            
+            pixmap_item = QGraphicsPixmapItem(pixmap)
+            self.scene.addItem(pixmap_item)
+
+            image_layout = QVBoxLayout()
+            image_label = QLabel(organ)
+            image_label.setAlignment(Qt.AlignCenter)
+            image_layout.addWidget(image_label)
+
+            pixmap_view = QGraphicsView()
+            pixmap_scene = QGraphicsScene()
+            pixmap_scene.addItem(pixmap_item)
+            pixmap_view.setScene(pixmap_scene)
+            
+            image_layout.addWidget(pixmap_view)
+
+            images_layout.addLayout(image_layout)
+
+        # Fígado com Hi ------------------------------------------------------------- #
+
+        new_liver_pix_map = self.calculate_hi(organ_images)
+        pixmap_item = QGraphicsPixmapItem(new_liver_pix_map)
+        self.scene.addItem(pixmap_item)
+
+        image_layout = QVBoxLayout()
+        image_label = QLabel("Fígado com Hi")
+        image_label.setAlignment(Qt.AlignCenter)
+        image_layout.addWidget(image_label)
+        pixmap_view = QGraphicsView()
+        pixmap_scene = QGraphicsScene()
+        pixmap_scene.addItem(pixmap_item)
+        pixmap_view.setScene(pixmap_scene)
+        image_layout.addWidget(pixmap_view)
+        images_layout.addLayout(image_layout)
+
+        # ------------------------------------------------------------------------ #
+
+        self.cropped.emit(new_liver_pix_map) # Emitir pixmap para salvar
+
+        layout.addLayout(images_layout)
         layout.addWidget(self.view)
         self.setLayout(layout)
         self.show()
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.origin = self.view.mapToScene(event.pos()).toPoint()
-            self.rubber_band.setGeometry(self.current_rect)
-            self.rubber_band.show()
+    def calculate_hi(self, organ_images):
+        liver = self.calculate_avg(organ_images["liver"]["pixmap"])
+        kidney = self.calculate_avg(organ_images["kidney"]["pixmap"])
 
-    def mouseMoveEvent(self, event):
-        if not self.origin.isNull():
-            current_pos = self.view.mapToScene(event.pos()).toPoint()
-            self.current_rect = QRect(self.origin, current_pos)
-            self.current_rect = self.current_rect.normalized()  # Ajusta para evitar retângulos invertidos
-            self.rubber_band.setGeometry(self.current_rect)
+        hi = liver / kidney
+        image = organ_images["liver"]["pixmap"].toImage()
+        new_image = QImage(image.size(), QImage.Format_Grayscale8)
+        
+        for x in range(image.width()):
+            for y in range(image.height()):
+                pixel_value = image.pixelColor(x, y).red()
+                novo_valor = min(int(pixel_value * hi), 255) # Tem que colocar esse limite, porque é 8bits de grayscale
+                new_image.setPixel(x, y, QColor(novo_valor, novo_valor, novo_valor).rgba())
+        return QPixmap.fromImage(new_image)
 
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.rubber_band.hide()
-            rubber_band_rect = self.rubber_band.geometry()
+    def calculate_avg(self, pixmap):
+        image = pixmap.toImage()
+        num_pixels = image.width() * image.height()
+        sum_of_pixels = 0
 
-            if rubber_band_rect.width() > 1 and rubber_band_rect.height() > 1:
-                # Mapeia a área selecionada para a cena
-                scene_rect = self.view.mapToScene(rubber_band_rect).boundingRect()
-                pixmap_item = self.scene.items()[0]
-                original_pixmap = pixmap_item.pixmap()
+        for x in range(image.width()):
+            for y in range(image.height()):
+                pixel_value = image.pixelColor(x, y).red()
+                sum_of_pixels += pixel_value
 
-                # Recorta a imagem com base na área selecionada
-                cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
-                self.cropped.emit(self.count_cropped, cropped_pixmap)
-                self.count_cropped += 1
-         
-#Menu Bar -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        return sum_of_pixels / num_pixels
+        
 class MenuBar(QMenuBar):
     add_image = pyqtSignal(str, QPixmap)
     crop_signal = pyqtSignal()
@@ -275,7 +305,7 @@ class MenuBar(QMenuBar):
                 height, width = image.shape
                 q_img = QImage(image.data, width, height, QImage.Format_Grayscale8)
                 pixmap = QPixmap.fromImage(q_img)
-                self.add_image.emit(file_name, pixmap)       
+                self.add_image.emit(file_name, pixmap) 
 
 
  #Histograma---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -319,7 +349,7 @@ class Histogram(QWidget):
 
  #Imagem Viewer ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class ImageViewer(QGraphicsView):
-    cropped = pyqtSignal(int, QPixmap, int, int, int, int)
+    cropped = pyqtSignal(QPixmap, int, int, int, int, int)
 
     def __init__(self):
         super().__init__()
@@ -451,7 +481,7 @@ class ImageViewer(QGraphicsView):
             pixmap_item = self.scene.items()[0]
             original_pixmap = pixmap_item.pixmap()
             cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
-            self.cropped.emit(self.crop_n, cropped_pixmap, int(self.pacient_n), int(self.image_n), int(rubber_band_rect.x()), int(rubber_band_rect.y()))
+            self.cropped.emit(cropped_pixmap, self.crop_n, int(self.pacient_n), int(self.image_n), int(rubber_band_rect.x()), int(rubber_band_rect.y()))
             self.crop_n += 1
     # ------------------------------------------------------------------------------------------- #
 
@@ -478,6 +508,16 @@ class ToolBarImages(QToolBar):
     def __init__(self, images = None):
         super().__init__("All Images")
         self.images = images
+
+        self.has_selected_liver = False
+        self.has_selected_cortex = False
+        self.has_selected_kidney = False
+
+        self.organ_images = {}
+        self.pacient_id = 0
+        self.image_id = 0
+
+        self.crop_window = None
 
         # Inicialização da hierarquia de pastas
         # ------------------------------------------------------------------------------------------- #
@@ -522,33 +562,62 @@ class ToolBarImages(QToolBar):
         pixmap = QPixmap.fromImage(q_img)
         self.pixmap_dictionary[f"{id_pacient}-{id_image}"] = pixmap
     
-    def create_image_from_cropped(self, id_crop, crop_qpixmap, pacient_n, image_n, coord_x, coord_y):
-        child_item = QTreeWidgetItem(self.cropped_imgs_node)
-        child_item.setText(0, f"ROI_{pacient_n}_{image_n}")
-        child_item.setText(1, f"C")
-        child_item.setText(2, str(id_crop))
-        child_item.setText(3, f"{coord_x},{coord_y}")
+    def create_image_from_cropped(self, crop_qpixmap, id_crop, pacient_n, image_n, coord_x, coord_y):
+        if pacient_n != self.pacient_id and image_n != self.image_id:
+            self.organ_images = {}
+            self.pacient_id = pacient_n
+            self.image_id = image_n
 
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Question)
         msg.setText("Informe o órgao dessa imagem")
         msg.setWindowTitle("Recorte")
         
-        button_liver = msg.addButton("Fígado", QMessageBox.liver)
-        button_cortex = msg.addButton("Cortex Renal", QMessageBox.cortex)
-        button_kidney = msg.addButton("Rim", QMessageBox.kidney)
+        button_liver = button_cortex = button_kidney = None
+
+        if not self.has_selected_liver:
+            button_liver = msg.addButton("Fígado", QMessageBox.ActionRole)
+        if not self.has_selected_cortex:
+            button_cortex = msg.addButton("Cortex Renal", QMessageBox.ActionRole)
+        if not self.has_selected_kidney:
+            button_kidney = msg.addButton("Rim", QMessageBox.ActionRole)
 
         msg.exec_()
 
         if msg.clickedButton() == button_liver:
-            child_item.setText(4, f"liver")
+            self.has_selected_liver = True
+            organ = "liver"
         elif msg.clickedButton() == button_cortex:
-            child_item.setText(4, f"cortex")
-        elif msg.clickedButton() == button_kidney:
-            child_item.setText(4, f"kidney")
+            self.has_selected_cortex = True
+            organ = "cortex"
+        else:
+            self.has_selected_kidney = True
+            organ = "kidney"
 
-        self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
-    
+        self.organ_images[organ] = {
+            "pixmap": crop_qpixmap,
+            "coords": (coord_x, coord_y),
+            "organ": organ
+        }
+
+        if self.has_selected_liver and self.has_selected_cortex and self.has_selected_kidney:
+            self.crop_window = CropWindow(self.organ_images)
+            self.crop_window.cropped.connect(self.save_img)
+            
+            child_item = QTreeWidgetItem(self.cropped_imgs_node)
+            child_item.setText(1, f"C")
+            child_item.setText(2, str(id_crop))
+            child_item.setText(3, f"{coord_x},{coord_y}")
+
+
+            child_item.setText(4, organ)
+
+            child_item.setText(0, f"ROI_{pacient_n}_{image_n}")
+            self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
+
+    def save_img(self, cropped_imgs_node):
+
+
     def save_all_crops(self):
         for i in range(self.cropped_imgs_node):
             node = self.cropped_imgs_node.child(i)
