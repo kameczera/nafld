@@ -14,6 +14,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import numpy as np
 import cv2
+from functools import partial
 
 class ProcessadorDeImagens(QMainWindow):
     def __init__(self, imagens=None):
@@ -160,7 +161,6 @@ class MomentHu(QWidget):
         return arr
 
 class CropWindow(QWidget):
-    cropped = pyqtSignal(QPixmap)
     
     def __init__(self, organ_images):
         super().__init__()
@@ -200,8 +200,8 @@ class CropWindow(QWidget):
 
         # Fígado com Hi ------------------------------------------------------------- #
 
-        new_liver_pix_map = self.calculate_hi(organ_images)
-        pixmap_item = QGraphicsPixmapItem(new_liver_pix_map)
+        self.new_liver_pix_map = self.calculate_hi(organ_images)
+        pixmap_item = QGraphicsPixmapItem(self.new_liver_pix_map)
         self.scene.addItem(pixmap_item)
 
         image_layout = QVBoxLayout()
@@ -216,8 +216,6 @@ class CropWindow(QWidget):
         images_layout.addLayout(image_layout)
 
         # ------------------------------------------------------------------------ #
-
-        self.cropped.emit(new_liver_pix_map) # Emitir pixmap para salvar
 
         layout.addLayout(images_layout)
         layout.addWidget(self.view)
@@ -250,6 +248,9 @@ class CropWindow(QWidget):
                 sum_of_pixels += pixel_value
 
         return sum_of_pixels / num_pixels
+    
+    def get_new_liver_pix_map(self):
+        return self.new_liver_pix_map
         
 class MenuBar(QMenuBar):
     add_image = pyqtSignal(str, QPixmap)
@@ -602,21 +603,17 @@ class ToolBarImages(QToolBar):
 
         if self.has_selected_liver and self.has_selected_cortex and self.has_selected_kidney:
             self.crop_window = CropWindow(self.organ_images)
-            self.crop_window.cropped.connect(self.save_img)
-            
-            child_item = QTreeWidgetItem(self.cropped_imgs_node)
-            child_item.setText(1, f"C")
-            child_item.setText(2, str(id_crop))
-            child_item.setText(3, f"{coord_x},{coord_y}")
+            # new_liver_pix_map nao é passado por emit pois self.save_img precisa de todos esses parametros para funcionar
+            self.save_img(self.crop_window.get_new_liver_pix_map(), id_crop, coord_x, coord_y, organ, pacient_n, image_n)
 
-
-            child_item.setText(4, organ)
-
-            child_item.setText(0, f"ROI_{pacient_n}_{image_n}")
-            self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
-
-    def save_img(self, cropped_imgs_node):
-
+    def save_img(self, crop_qpixmap, id_crop, coord_x, coord_y, organ, pacient_n, image_n):
+        child_item = QTreeWidgetItem(self.cropped_imgs_node)
+        child_item.setText(0, f"ROI_{pacient_n}_{image_n}")
+        child_item.setText(1, f"C")
+        child_item.setText(2, str(id_crop))
+        child_item.setText(3, f"{coord_x},{coord_y}")
+        child_item.setText(4, organ)
+        self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
 
     def save_all_crops(self):
         for i in range(self.cropped_imgs_node):
