@@ -14,7 +14,8 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import numpy as np
 import cv2
-from functools import partial
+import csv
+
 
 class ProcessadorDeImagens(QMainWindow):
     def __init__(self, imagens=None):
@@ -167,7 +168,7 @@ class CropWindow(QWidget):
         self.view = QGraphicsView()
         self.scene = QGraphicsScene(self.view)
         self.view.setScene(self.scene)
-
+        self.hi = 0
         self.initUI(organ_images)
     
     def initUI(self, organ_images):
@@ -223,18 +224,18 @@ class CropWindow(QWidget):
         self.show()
 
     def calculate_hi(self, organ_images):
-        liver = self.calculate_avg(organ_images["liver"]["pixmap"])
-        kidney = self.calculate_avg(organ_images["kidney"]["pixmap"])
+        liver = self.calculate_avg(organ_images["fígado"]["pixmap"])
+        kidney = self.calculate_avg(organ_images["rim"]["pixmap"])
 
-        hi = liver / kidney
-        image = organ_images["liver"]["pixmap"].toImage()
+        self.hi = liver / kidney
+        image = organ_images["fígado"]["pixmap"].toImage()
         new_image = QImage(image.size(), QImage.Format_Grayscale8)
         
         for x in range(image.width()):
             for y in range(image.height()):
                 pixel_value = image.pixelColor(x, y).red()
-                novo_valor = min(int(pixel_value * hi), 255) # Tem que colocar esse limite, porque é 8bits de grayscale
-                new_image.setPixel(x, y, QColor(novo_valor, novo_valor, novo_valor).rgba())
+                new_value = min(int(pixel_value * self.hi), 255) # Tem que colocar esse limite, porque é 8bits de grayscale
+                new_image.setPixel(x, y, QColor(new_value, new_value, new_value).rgba())
         return QPixmap.fromImage(new_image)
 
     def calculate_avg(self, pixmap):
@@ -251,6 +252,9 @@ class CropWindow(QWidget):
     
     def get_new_liver_pix_map(self):
         return self.new_liver_pix_map
+    
+    def get_hi(self):
+        return self.hi
         
 class MenuBar(QMenuBar):
     add_image = pyqtSignal(str, QPixmap)
@@ -350,7 +354,7 @@ class Histogram(QWidget):
 
  #Imagem Viewer ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class ImageViewer(QGraphicsView):
-    cropped = pyqtSignal(QPixmap, int, int, int, int, int)
+    cropped = pyqtSignal(QPixmap, int, int, int, int)
 
     def __init__(self):
         super().__init__()
@@ -380,7 +384,6 @@ class ImageViewer(QGraphicsView):
         # Guardar o paciente e imagem do crop
         self.pacient_n = 0
         self.image_n = 0
-        self.crop_n = 0
 
     def display_image(self, pixmap, name):
         self.pacient_n, self.image_n = map(str, name.split("-"))
@@ -482,8 +485,7 @@ class ImageViewer(QGraphicsView):
             pixmap_item = self.scene.items()[0]
             original_pixmap = pixmap_item.pixmap()
             cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
-            self.cropped.emit(cropped_pixmap, self.crop_n, int(self.pacient_n), int(self.image_n), int(rubber_band_rect.x()), int(rubber_band_rect.y()))
-            self.crop_n += 1
+            self.cropped.emit(cropped_pixmap, int(self.pacient_n), int(self.image_n), int(rubber_band_rect.x()), int(rubber_band_rect.y()))
     # ------------------------------------------------------------------------------------------- #
 
     def click_near_border(self, pos):
@@ -517,6 +519,7 @@ class ToolBarImages(QToolBar):
         self.organ_images = {}
         self.pacient_id = 0
         self.image_id = 0
+        self.crop_id = 0
 
         self.crop_window = None
 
@@ -550,6 +553,9 @@ class ToolBarImages(QToolBar):
             return
         # TODO: Nome dos nós folhas estranho. Mudar aqui
         self.display.emit(self.pixmap_dictionary[f"{item.text(1)}-{item.text(2)}"], f"{item.text(1)}-{item.text(2)}")
+        self.has_selected_liver = False
+        self.has_selected_cortex = False
+        self.has_selected_kidney = False
 
     def open_image_patients(self, image, id_pacient, id_image, father):
         # Inicialização dos nós Folhas (Imagens dos pacientes)
@@ -563,7 +569,7 @@ class ToolBarImages(QToolBar):
         pixmap = QPixmap.fromImage(q_img)
         self.pixmap_dictionary[f"{id_pacient}-{id_image}"] = pixmap
     
-    def create_image_from_cropped(self, crop_qpixmap, id_crop, pacient_n, image_n, coord_x, coord_y):
+    def create_image_from_cropped(self, crop_qpixmap, pacient_n, image_n, coord_x, coord_y):
         if pacient_n != self.pacient_id and image_n != self.image_id:
             self.organ_images = {}
             self.pacient_id = pacient_n
@@ -587,13 +593,13 @@ class ToolBarImages(QToolBar):
 
         if msg.clickedButton() == button_liver:
             self.has_selected_liver = True
-            organ = "liver"
+            organ = "fígado"
         elif msg.clickedButton() == button_cortex:
             self.has_selected_cortex = True
-            organ = "cortex"
+            organ = "córtex"
         else:
             self.has_selected_kidney = True
-            organ = "kidney"
+            organ = "rim"
 
         self.organ_images[organ] = {
             "pixmap": crop_qpixmap,
@@ -603,34 +609,65 @@ class ToolBarImages(QToolBar):
 
         if self.has_selected_liver and self.has_selected_cortex and self.has_selected_kidney:
             self.crop_window = CropWindow(self.organ_images)
+            coords_liver = self.organ_images["fígado"]["coords"]
+            coords_kidney = self.organ_images["rim"]["coords"]
             # new_liver_pix_map nao é passado por emit pois self.save_img precisa de todos esses parametros para funcionar
-            self.save_img(self.crop_window.get_new_liver_pix_map(), id_crop, coord_x, coord_y, organ, pacient_n, image_n)
+            self.save_img(self.crop_window.get_new_liver_pix_map(), f"ROI_{pacient_n}_{image_n}", coords_liver, coords_kidney, pacient_n, self.crop_window.get_hi())
+            # nao precisa das ROIs do rim
+            # self.save_img(self.organ_images["rim"]["pixmap"], f"RIM_{pacient_n}_{image_n}", coord_x, coord_y, pacient_n)
 
-    def save_img(self, crop_qpixmap, id_crop, coord_x, coord_y, organ, pacient_n, image_n):
+    def save_img(self, crop_qpixmap, file_name, coords_liver, coords_kidney, pacient_n, hi):
         child_item = QTreeWidgetItem(self.cropped_imgs_node)
-        child_item.setText(0, f"ROI_{pacient_n}_{image_n}")
+        child_item.setText(0, file_name)
         child_item.setText(1, f"C")
-        child_item.setText(2, str(id_crop))
-        child_item.setText(3, f"{coord_x},{coord_y}")
-        child_item.setText(4, organ)
-        self.pixmap_dictionary[f"C-{id_crop}"] = crop_qpixmap
+        child_item.setText(2, str(self.crop_id))
+        child_item.setText(3, f"{coords_liver}")
+        child_item.setText(4, f"{coords_kidney}")
+        if pacient_n <= 16:
+            child_item.setText(5, "saudável")
+        else:
+            child_item.setText(5, "esteatose")
+        child_item.setText(6, f"{hi}")
+        
+
+        self.pixmap_dictionary[f"C-{self.crop_id}"] = crop_qpixmap
+        self.crop_id += 1
 
     def save_all_crops(self):
-        for i in range(self.cropped_imgs_node):
-            node = self.cropped_imgs_node.child(i)
-            pixmap = self.pixmap_dictionary[f"{node.text(1)}-{node.text(2)}"]
-            
-            pixmap_item = QGraphicsPixmapItem(pixmap)
-    
-            bounding_rect = pixmap_item.boundingRect()
-            
-            height = pixmap.height()
-            width = pixmap.width()
-            
-            print(f"Imagem: {key}")
-            print(f"Canto superior esquerdo: ({coord_x},{coord_y})")
-            print(f"Altura: {height}, Comprimento: {width}")
-            print("-" * 30)
+
+        with open("data.csv", mode='w', newline='') as file:
+            writer = csv.writer(file)
+        
+            writer.writerow(["Arquivo", "Classe", "Canto superior esquerdo fígado", "Canto superior esquerdo rim", "Altura", "Comprimento"])
+
+            for i in range(self.cropped_imgs_node.childCount()):
+                node = self.cropped_imgs_node.child(i)
+                pixmap = self.pixmap_dictionary[f"{node.text(1)}-{node.text(2)}"]
+                
+                pixmap_item = QGraphicsPixmapItem(pixmap)
+        
+                bounding_rect = pixmap_item.boundingRect()
+                
+                height = pixmap.height()
+                width = pixmap.width()
+                
+                print(f"Arquivo: {node.text(0)}")
+                print(f"Classe: {node.text(5)}")
+                print(f"Canto superior esquerdo fígado: ({node.text(3)})")
+                print(f"Canto superior esquerdo rim: ({node.text(4)})")
+                print(f"Altura: {height}, Comprimento: {width}")
+                print(f"Hi: ({node.text(6)})")
+                print("-" * 30)
+
+                writer.writerow([
+                node.text(0),
+                node.text(5),
+                node.text(3),
+                node.text(4),
+                height,
+                width,
+                node.text(6),
+                ])
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def obter_conjunto_imagens():
