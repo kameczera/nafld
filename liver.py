@@ -485,7 +485,7 @@ class ImageViewer(QGraphicsView):
             pixmap_item = self.scene.items()[0]
             original_pixmap = pixmap_item.pixmap()
             cropped_pixmap = original_pixmap.copy(scene_rect.toRect())
-            self.cropped.emit(cropped_pixmap, int(self.pacient_n), int(self.image_n), int(rubber_band_rect.x()), int(rubber_band_rect.y()))
+            self.cropped.emit(cropped_pixmap, int(self.pacient_n), int(self.image_n), int(scene_rect.x()), int(scene_rect.y()))
     # ------------------------------------------------------------------------------------------- #
 
     def click_near_border(self, pos):

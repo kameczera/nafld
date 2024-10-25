@@ -1,2 +1,3 @@
 Arquivo,Classe,Canto superior esquerdo fígado,Canto superior esquerdo rim,Altura,Comprimento
-ROI_0_0,saudável,"(70, 176)","(375, 260)",28,28,0.0
+ROI_0_0,saudável,"(346, 180)","(212, 228)",28,28,0.7904636776701155
+ROI_0_1,saudável,"(321, 167)","(220, 218)",28,28,1.034225822811147
