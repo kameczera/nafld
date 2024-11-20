@@ -26,11 +26,11 @@ class ProcessadorDeImagens(QMainWindow):
         self.visualizador_imagem = ImageViewer()
         self.toolbar_imagens = ToolBarImages(imagens)
         self.menubar = MenuBar()
-        
+
         # Inicializar o MomentHu com referências ao visualizador e histograma
         self.momentHu = MomentHu(self.visualizador_imagem)  # Passar apenas visualizador_imagem
 
-        
+
         self.addToolBar(Qt.LeftToolBarArea, self.toolbar_imagens)
 
         self.visualizador_imagem.cropped.connect(self.toolbar_imagens.create_image_from_cropped)  # Comunicação ImageViewer -> ToolBarImage
@@ -60,7 +60,6 @@ class ProcessadorDeImagens(QMainWindow):
             self.histograma.show()
 
     def exibir_momento_hu(self):
-        # Agora, a função MomentHu irá funcionar corretamente
         self.momentHu.momentos_invariantes_Hu()
         self.momentHu.show()
 
@@ -69,31 +68,63 @@ class ProcessadorDeImagens(QMainWindow):
 
     # Interface GLCM Raízes -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     def VisualizadorGLCM(self, imagem):
-        distancias = [1, 2, 4, 8]
-        rotulos_distancias = ['1', '2', '4', '8']
-        fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+        self.imagem = imagem
+        self.distancias = [1, 2, 4, 8]
+        self.angulos = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
+        self.rotulos_angulos = ['0°', '45°', '90°', '135°']
+        self.pagina_atual = 0
 
-        for ax in axs.flatten():
+        self.total_paginas = len(self.distancias)
+
+        self.fig, self.axs = plt.subplots(2, 2, figsize=(10, 8))
+        self.atualizar_graficos()
+
+        plt.subplots_adjust(bottom=0.2)
+        self.botao_anterior = plt.Button(plt.axes([0.35, 0.05, 0.1, 0.075]), 'Anterior')
+        self.botao_proximo = plt.Button(plt.axes([0.55, 0.05, 0.1, 0.075]), 'Próximo')
+
+        self.botao_anterior.on_clicked(self.pagina_anterior)
+        self.botao_proximo.on_clicked(self.proxima_pagina)
+        plt.show()
+
+    def atualizar_graficos(self):
+        for ax in self.axs.flatten():
             ax.clear()
 
-        for d_idx, distancia in enumerate(distancias):
-            glcm = graycomatrix(imagem, distances=[distancia], angles=[0], normed=True)
+        # Obtém a distância atual
+        distancia = self.distancias[self.pagina_atual]
+
+        for a_idx, angulo in enumerate(self.angulos):
+            glcm = graycomatrix(self.imagem, distances=[distancia], angles=[angulo], normed=True)
             glcm_homogeneidade = graycoprops(glcm, 'homogeneity')[0, 0]
-            glcm_flattened = glcm[:, :, 0, 0].ravel()
+            glcm_normed2D = glcm[:, :, 0, 0]
+            glcm_flattened = glcm_normed2D.ravel()  # Achata para ficar um vetor de probabilidade
             glcm_entropia = entropy(glcm_flattened, base=2)
-            ax = axs.flatten()[d_idx]
-            ax.set_title(f'Distância {rotulos_distancias[d_idx]}\n'
-                         f'Homogeneidade: {glcm_homogeneidade:.4f}, Entropia: {glcm_entropia:.4f}')
+
+            ax = self.axs.flatten()[a_idx]
+            #ax.imshow(glcm[:, :, 0, 0], cmap='coolwarm')
+            ax.set_title(f'Distância {distancia},     Ângulo {self.rotulos_angulos[a_idx]}\n'
+                         f'Homogeneidade: {glcm_homogeneidade:.4f},      Entropia: {glcm_entropia:.4f}')
             ax.axis('off')
-        
-        plt.suptitle('GLCM')
-        plt.show()
+
+        plt.suptitle(f'GLCM para Distância {distancia}')
+        plt.draw()
+
+    def proxima_pagina(self, event):
+        if self.pagina_atual < self.total_paginas - 1:
+            self.pagina_atual += 1
+            self.atualizar_graficos()
+
+    def pagina_anterior(self, event):
+        if self.pagina_atual > 0:
+            self.pagina_atual -= 1
+            self.atualizar_graficos()
 
     def calcular_coocorenciaRadiais(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         imagem = self.qpixmap_to_numpy(pixmap_atual)
         self.VisualizadorGLCM(imagem)
-    
+
     def abrir_janela_crop(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         if pixmap_atual:
@@ -104,12 +135,12 @@ class ProcessadorDeImagens(QMainWindow):
         qimage = pixmap.toImage()
         width = qimage.width()
         height = qimage.height()
-        
+
         ptr = qimage.bits()
         ptr.setsize(height * width)
         arr = np.array(ptr).reshape((height, width))
 
-        return arr            
+        return arr
 
 
 
@@ -120,35 +151,31 @@ import cv2
 class MomentHu(QWidget):
     def __init__(self, visualizador_imagem):
         super().__init__()
-        
+
         self.visualizador_imagem = visualizador_imagem
-        
-        # Configurar o layout
+
+
         self.layout = QVBoxLayout(self)
-        
-        # Criar um QTextEdit para exibir os momentos
+
+
         self.text_edit = QTextEdit(self)
-        self.text_edit.setReadOnly(True)  # Define como somente leitura
+        self.text_edit.setReadOnly(True)
         self.layout.addWidget(self.text_edit)
 
     def momentos_invariantes_Hu(self):
-        # Obter a imagem do visualizador
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         imagem = self.qpixmap_to_numpy(pixmap_atual)  # Converter QPixmap para numpy
-        
+
         if imagem is not None:
 
-            # Calcular os momentos centrais
             momentos_centrais = cv2.moments(imagem)
-            
-            # Calcular os Momentos de Hu
+
             hu_moments = cv2.HuMoments(momentos_centrais).flatten()
-            
+
             texto = "\nMomentos de Hu:\n"
             for i, value in enumerate(hu_moments):
                 texto += f'Hu[{i + 1}]: {value:.4e}\n'  # Usando notação científica
-            
-            # Exibir os dados no QTextEdit
+
             self.text_edit.setPlainText(texto)
         else:
             print("Erro: A imagem não pôde ser convertida.")
@@ -157,7 +184,7 @@ class MomentHu(QWidget):
         qimage = pixmap.toImage()
         width = qimage.width()
         height = qimage.height()
-        
+
         ptr = qimage.bits()
         ptr.setsize(height * width)
         arr = np.array(ptr).reshape((height, width))
@@ -165,7 +192,7 @@ class MomentHu(QWidget):
         return arr
 
 class CropWindow(QWidget):
-    
+
     def __init__(self, organ_images):
         super().__init__()
         self.view = QGraphicsView()
@@ -173,16 +200,18 @@ class CropWindow(QWidget):
         self.view.setScene(self.scene)
         self.hi = 0
         self.initUI(organ_images)
-    
+
     def initUI(self, organ_images):
         self.setWindowTitle("Recorte de Imagem")
         layout = QVBoxLayout()
+
+        # Crie um layout horizontal para as imagens
         images_layout = QHBoxLayout()
 
         for organ, data in organ_images.items():
             pixmap = data["pixmap"]
             coords = data["coords"]
-            
+
             pixmap_item = QGraphicsPixmapItem(pixmap)
             self.scene.addItem(pixmap_item)
 
@@ -195,7 +224,7 @@ class CropWindow(QWidget):
             pixmap_scene = QGraphicsScene()
             pixmap_scene.addItem(pixmap_item)
             pixmap_view.setScene(pixmap_scene)
-            
+
             image_layout.addWidget(pixmap_view)
 
             images_layout.addLayout(image_layout)
@@ -231,7 +260,7 @@ class CropWindow(QWidget):
         self.hi = liver / kidney
         image = organ_images["fígado"]["pixmap"].toImage()
         new_image = QImage(image.size(), QImage.Format_Grayscale8)
-        
+
         for x in range(image.width()):
             for y in range(image.height()):
                 pixel_value = image.pixelColor(x, y).red()
@@ -250,17 +279,17 @@ class CropWindow(QWidget):
                 sum_of_pixels += pixel_value
 
         return sum_of_pixels / num_pixels
-    
+
     def get_new_liver_pix_map(self):
         return self.new_liver_pix_map
-    
+
     def get_hi(self):
         return self.hi
-        
+
 class MenuBar(QMenuBar):
     add_image = pyqtSignal(str, QPixmap)
     crop_signal = pyqtSignal()
-    glcm_signal = pyqtSignal() 
+    glcm_signal = pyqtSignal()
     histograma_signal = pyqtSignal()
     momento_Hu_signal = pyqtSignal()
     save_signal = pyqtSignal()
@@ -276,7 +305,7 @@ class MenuBar(QMenuBar):
         crop_image = QAction('Recortar Imagem', self)
         crop_image.triggered.connect(self.crop_signal.emit)
         file_menu.addAction(crop_image)
-        
+
         save_rois = QAction('Salvar ROIs', self)
         save_rois.triggered.connect(self.save_signal.emit)
         file_menu.addAction(save_rois)
@@ -298,7 +327,7 @@ class MenuBar(QMenuBar):
         momento_hu_action = QAction('Mostrar Dados',self)
         momento_hu_action.triggered.connect(self.momento_Hu_signal.emit)
         momento_hu_menu.addAction(momento_hu_action)
-        
+
 
     def open_image(self, file_name):
         options = QFileDialog.Options()
@@ -311,7 +340,7 @@ class MenuBar(QMenuBar):
                 height, width = image.shape
                 q_img = QImage(image.data, width, height, QImage.Format_Grayscale8)
                 pixmap = QPixmap.fromImage(q_img)
-                self.add_image.emit(file_name, pixmap) 
+                self.add_image.emit(file_name, pixmap)
 
 
  #Histograma---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -325,7 +354,7 @@ class Histogram(QWidget):
         self.ax = self.canvas.figure.subplots()
 
         self.compute_histogram(pixmap)
-    
+
     def compute_histogram(self, pixmap):
         image = self.qpixmap_to_numpy(pixmap)
 
@@ -345,13 +374,13 @@ class Histogram(QWidget):
         qimage = pixmap.toImage()
         width = qimage.width()
         height = qimage.height()
-        
+
         ptr = qimage.bits()
         ptr.setsize(height * width)
         arr = np.array(ptr).reshape((height, width))
 
         return arr
-    
+
 
  #Imagem Viewer ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class ImageViewer(QGraphicsView):
@@ -361,7 +390,7 @@ class ImageViewer(QGraphicsView):
         super().__init__()
         self.scene = QGraphicsScene(self)
         self.setDragMode(QGraphicsView.NoDrag)
-  
+
         self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
 
         # Variáveis de controle de interação com rubber band
@@ -373,11 +402,11 @@ class ImageViewer(QGraphicsView):
         self.is_resizing_rb = False
         self.is_translating = False
         self.direction = -1
-        
+
         self.origin = QPoint()
         self.last_mouse_pos = QPoint()
         self.current_rect = QRect()
-        
+
         # ---------------------------------------------------------- #
 
         self.setScene(self.scene)
@@ -394,7 +423,7 @@ class ImageViewer(QGraphicsView):
         self.pix_map = pixmap
         pixmap_item = QGraphicsPixmapItem(pixmap)
         self.scene.addItem(pixmap_item)
-    
+
     def get_pixmap(self):
         return self.pix_map
 
@@ -411,12 +440,12 @@ class ImageViewer(QGraphicsView):
         self.origin = event.pos()
         self.last_mouse_pos = event.pos()
         self.direction = self.click_near_border(event.pos())
-    
+
         # Usuário clicando na borda do rubber band? -> Se sim, ativar Resize
         # Obs: Resize desativado porque sao ROIs 28x28 tamanho fixo
         if event.button() == Qt.LeftButton and self.direction != -1:
             self.is_resizing_rb = True
-    
+
     # Usuário clicando dentro do rubber band? -> Se sim, ativar translação
         elif self.current_rect.contains(event.pos()):
             self.is_translating = True
@@ -474,7 +503,7 @@ class ImageViewer(QGraphicsView):
         # else:
         #     utility.MessageBox.show_alert("Selecao da ROI muito pequena.")
         if event.button() == Qt.RightButton:
-            
+
             self.setCursor(Qt.ArrowCursor)
 
         super().mouseReleaseEvent(event)
@@ -495,19 +524,19 @@ class ImageViewer(QGraphicsView):
         margin = 5 # Margem de detecção de proximidade de borda (Mudar caso necessário)
 
         # Rosa dos ventos (Leste, Norte, Oeste, Sul - 1, 2, 3, 4) simplesmente para deixar o código mais eficiente, se tiver muito ilegível mudar
-        # if (abs(pos.x() - band_rect.right()) < margin): return 1 
-        # elif (abs(pos.y() - band_rect.top()) < margin): return 2
-        # elif (abs(pos.x() - band_rect.left()) < margin): return 3
-        # elif (abs(pos.y() - band_rect.bottom()) < margin): return 4
+        if (abs(pos.x() - band_rect.right()) < margin): return 1 
+        elif (abs(pos.y() - band_rect.top()) < margin): return 2
+        elif (abs(pos.x() - band_rect.left()) < margin): return 3
+        elif (abs(pos.y() - band_rect.bottom()) < margin): return 4
         
         return -1
-    
+
 
 
 # Classe ToolBarImages: Classe que mostra as imagens adicionadas pelo botao load, "croppadas" e do dataset Liver -----------------------------------------------------------------------------------------------------------
 class ToolBarImages(QToolBar):
     display = pyqtSignal(QPixmap, str)
-    
+
 
     def __init__(self, images = None):
         super().__init__("All Images")
@@ -569,7 +598,7 @@ class ToolBarImages(QToolBar):
         q_img = QImage(image_bytes, width, height, QImage.Format_Grayscale8)
         pixmap = QPixmap.fromImage(q_img)
         self.pixmap_dictionary[f"{id_pacient}-{id_image}"] = pixmap
-    
+
     def create_image_from_cropped(self, crop_qpixmap, pacient_n, image_n, coord_x, coord_y):
         if pacient_n != self.pacient_id and image_n != self.image_id:
             self.organ_images = {}
@@ -580,7 +609,7 @@ class ToolBarImages(QToolBar):
         msg.setIcon(QMessageBox.Question)
         msg.setText("Informe o órgao dessa imagem")
         msg.setWindowTitle("Recorte")
-        
+
         button_liver = button_cortex = button_kidney = None
 
         if not self.has_selected_liver:
@@ -629,7 +658,7 @@ class ToolBarImages(QToolBar):
         else:
             child_item.setText(5, "esteatose")
         child_item.setText(6, f"{hi}")
-        
+
 
         self.pixmap_dictionary[f"C-{self.crop_id}"] = crop_qpixmap
         self.crop_id += 1
@@ -639,19 +668,19 @@ class ToolBarImages(QToolBar):
         with open("data.csv", mode='w', newline='') as file:
             writer = csv.writer(file)
         
-            writer.writerow(["Arquivo", "Classe", "Canto superior esquerdo fígado", "Canto superior esquerdo rim", "Altura", "Comprimento", "Hi"])
+            writer.writerow(["Arquivo", "Classe", "Canto superior esquerdo fígado", "Canto superior esquerdo rim", "Altura", "Comprimento"])
 
             for i in range(self.cropped_imgs_node.childCount()):
                 node = self.cropped_imgs_node.child(i)
                 pixmap = self.pixmap_dictionary[f"{node.text(1)}-{node.text(2)}"]
-                
+
                 pixmap_item = QGraphicsPixmapItem(pixmap)
-        
+
                 bounding_rect = pixmap_item.boundingRect()
-                
+
                 height = pixmap.height()
                 width = pixmap.width()
-                
+
                 print(f"Arquivo: {node.text(0)}")
                 print(f"Classe: {node.text(5)}")
                 print(f"Canto superior esquerdo fígado: ({node.text(3)})")
