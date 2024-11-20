@@ -1,4 +1,4 @@
-# Integrante 01: André Fellipe Carvalho Silveira
+# Integrante 01: André Fellipe Carvalho Silveira 
 # Integrante 02: Leonardo Kamei Yukio
 
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
-from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent
+from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette 
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
 import scipy.io
 import matplotlib.pyplot as plt
@@ -385,8 +385,9 @@ class ImageViewer(QGraphicsView):
         super().__init__()
         self.scene = QGraphicsScene(self)
         self.setDragMode(QGraphicsView.NoDrag)
-
         self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+     
+        
 
         # Variáveis de controle de interação com rubber band
         # ---------------------------------------------------------- #
