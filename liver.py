@@ -15,7 +15,10 @@ from matplotlib.figure import Figure
 import numpy as np
 import cv2
 import csv
-
+import xgboost as xgb
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import GroupKFold
 
 class ProcessadorDeImagens(QMainWindow):
     def __init__(self, imagens=None):
@@ -201,6 +204,8 @@ class CropWindow(QWidget):
     def initUI(self, organ_images):
         self.setWindowTitle("Recorte de Imagem")
         layout = QVBoxLayout()
+
+        # Crie um layout horizontal para as imagens
         images_layout = QHBoxLayout()
 
         for organ, data in organ_images.items():
@@ -520,11 +525,11 @@ class ImageViewer(QGraphicsView):
         margin = 5 # Margem de detecção de proximidade de borda (Mudar caso necessário)
 
         # Rosa dos ventos (Leste, Norte, Oeste, Sul - 1, 2, 3, 4) simplesmente para deixar o código mais eficiente, se tiver muito ilegível mudar
-        # if (abs(pos.x() - band_rect.right()) < margin): return 1
-        # elif (abs(pos.y() - band_rect.top()) < margin): return 2
-        # elif (abs(pos.x() - band_rect.left()) < margin): return 3
-        # elif (abs(pos.y() - band_rect.bottom()) < margin): return 4
-
+        if (abs(pos.x() - band_rect.right()) < margin): return 1 
+        elif (abs(pos.y() - band_rect.top()) < margin): return 2
+        elif (abs(pos.x() - band_rect.left()) < margin): return 3
+        elif (abs(pos.y() - band_rect.bottom()) < margin): return 4
+        
         return -1
 
 
@@ -663,7 +668,7 @@ class ToolBarImages(QToolBar):
 
         with open("data.csv", mode='w', newline='') as file:
             writer = csv.writer(file)
-
+        
             writer.writerow(["Arquivo", "Classe", "Canto superior esquerdo fígado", "Canto superior esquerdo rim", "Altura", "Comprimento"])
 
             for i in range(self.cropped_imgs_node.childCount()):
@@ -695,8 +700,43 @@ class ToolBarImages(QToolBar):
                 node.text(6),
                 ])
 
+def preparate_data_rois(path, images_liver):
+    X, Y = [], []
+    seen_ids = set()
+    with open(path, mode='r', encoding='utf-8') as file:
+        csv_dict = csv.DictReader(file)
+        for line in csv_dict:
+            ids = line["Arquivo"].split("_")
+            id_pacient = int(ids[1])
+            id_image = int(ids[2])
+            x, y = map(int, line["Liver"].strip("()").split(", "))
+            image = images_liver[id_pacient][id_image]
+            X.append(image[y:y+28, x:x+28].flatten())
+            if id_pacient < 17:
+                label = 1
+            else: 
+                label = 0
+            Y.append(label)
+    return np.array(X), np.array(Y)
+
+def test_xgboost_cross_val(X, Y):
+    
+    # Criar o modelo XGBoost
+    model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+    
+    print("Treinando o modelo com validação cruzada...")
+    pacientes_indices = np.arange(55)
+    grupos = np.repeat(pacientes_indices, 10)
+    gkf = GroupKFold(n_splits=5)
+    print(grupos)
+
+    scores = cross_val_score(model, X, Y, cv=gkf.split(X, Y, grupos), scoring='accuracy')
+    
+    print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
+    print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
+
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-def obter_conjunto_imagens():
+def obtain_steatosis_images():
     # Colocar a localização da pasta "liver" para ajudar na procura da pasta
     path_input_dir = Path("liver")
     path_data = path_input_dir / "dataset_liver_bmodes_steatosis_assessment_IJCARS.mat"
@@ -706,7 +746,12 @@ def obter_conjunto_imagens():
     return data_array['images'][0]
 
 if __name__ == '__main__':
-    imagens_liver = obter_conjunto_imagens()
+    imagens_liver = obtain_steatosis_images()
+
+    X, Y = preparate_data_rois("./data_real.csv", imagens_liver)
+    print(len(X), len(Y))
+    test_results = test_xgboost_cross_val(X, Y)
+
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
