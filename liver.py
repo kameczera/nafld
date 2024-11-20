@@ -726,12 +726,13 @@ def test_xgboost_cross_val(X, Y):
     print("Treinando o modelo com validação cruzada...")
     pacientes_indices = np.arange(55)
     grupos = np.repeat(pacientes_indices, 10)
+    gkf = GroupKFold(n_splits=5)
     print(grupos)
 
-    # scores = cross_val_score(model, X, Y, cv=gkf.split(X, Y, grupos), scoring='accuracy')
+    scores = cross_val_score(model, X, Y, cv=gkf.split(X, Y, grupos), scoring='accuracy')
     
-    # print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
-    # print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
+    print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
+    print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def obtain_steatosis_images():
