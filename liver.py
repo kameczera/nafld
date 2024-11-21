@@ -1,4 +1,4 @@
-# Integrante 01: André Fellipe Carvalho Silveira
+# Integrante 01: André Fellipe Carvalho Silveira 
 # Integrante 02: Leonardo Kamei Yukio
 
 import sys
@@ -6,8 +6,9 @@ from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
-from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent
-from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize
+from PyQt5.QtWidgets import QProgressBar, QPushButton,QDialog
+from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize,QThread
 import scipy.io
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -31,6 +32,7 @@ class ProcessadorDeImagens(QMainWindow):
         self.visualizador_imagem = ImageViewer()
         self.toolbar_imagens = ToolBarImages(imagens)
         self.menubar = MenuBar()
+        self.progress_window = None  # Janela de progresso inicializada como None
 
         # Inicializar o MomentHu com referências ao visualizador e histograma
         self.momentHu = MomentHu(self.visualizador_imagem)  # Passar apenas visualizador_imagem
@@ -47,6 +49,8 @@ class ProcessadorDeImagens(QMainWindow):
         self.menubar.histograma_signal.connect(self.mostrar_histograma)
         self.menubar.momento_Hu_signal.connect(self.exibir_momento_hu)  # Conectar o sinal ao método que irá definir o histograma
         self.menubar.save_signal.connect(self.toolbar_imagens.save_all_crops)
+
+        self.menubar.IA_signal.connect(self.mostrar_progress_window)
 
         self.initUI()
 
@@ -67,6 +71,11 @@ class ProcessadorDeImagens(QMainWindow):
     def exibir_momento_hu(self):
         self.momentHu.momentos_invariantes_Hu()
         self.momentHu.show()
+
+    def mostrar_progress_window(self):
+        # Cria uma instância de ProgressWindow sem sobrescrever a janela principal
+        self.progress_window = ProgressWindow(self)
+        self.progress_window.show()  # Exibe a janela
 
     # O restante da sua classe ProcessadorDeImagens permanece o mesmo
 
@@ -147,11 +156,6 @@ class ProcessadorDeImagens(QMainWindow):
 
         return arr
 
-
-
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QTextEdit
-import numpy as np
-import cv2
 
 class MomentHu(QWidget):
     def __init__(self, visualizador_imagem):
@@ -298,6 +302,7 @@ class MenuBar(QMenuBar):
     histograma_signal = pyqtSignal()
     momento_Hu_signal = pyqtSignal()
     save_signal = pyqtSignal()
+    IA_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -332,6 +337,12 @@ class MenuBar(QMenuBar):
         momento_hu_action = QAction('Mostrar Dados',self)
         momento_hu_action.triggered.connect(self.momento_Hu_signal.emit)
         momento_hu_menu.addAction(momento_hu_action)
+
+        #Menu IA
+        IA_menu = self.addMenu('IA')
+        IA_action = QAction('XGBOOST',self)
+        IA_action.triggered.connect(self.IA_signal.emit)
+        IA_menu.addAction(IA_action)
 
 
     def open_image(self, file_name):
@@ -395,8 +406,9 @@ class ImageViewer(QGraphicsView):
         super().__init__()
         self.scene = QGraphicsScene(self)
         self.setDragMode(QGraphicsView.NoDrag)
-
         self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
+     
+        
 
         # Variáveis de controle de interação com rubber band
         # ---------------------------------------------------------- #
@@ -722,26 +734,107 @@ def preparate_data_rois(path, images_liver):
             Y.append(label)
     return np.array(X), np.array(Y)
 
-def test_xgboost_cross_val(X, Y):
-    model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
-    print("Treinando o modelo com validação cruzada...")
-    pacientes_indices = np.arange(55)
-    grupos = np.repeat(pacientes_indices, 10)
-    logo = LeaveOneGroupOut()
-    
-    scores = []
-    for train_index, test_index in logo.split(X, Y, grupos):
-        print(test_index)
-        X_train, X_test = X[train_index], X[test_index]
-        Y_train, Y_test = Y[train_index], Y[test_index]
+class ProgressComponent(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
 
-        model.fit(X_train, Y_train)
+        # Barra de progresso
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setValue(0)
+        self.layout.addWidget(self.progress_bar)
 
-        accuracy = model.score(X_test, Y_test)
-        scores.append(accuracy)
+        # Botão de inicialização
+        self.start_button = QPushButton("Iniciar Validação Cruzada", self)
+        self.start_button.clicked.connect(self.start_validation)
+        self.layout.addWidget(self.start_button)
 
-    print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
-    print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
+        # Thread para o trabalho pesado
+        self.worker = None
+
+    def start_validation(self):
+        self.start_button.setEnabled(False)
+
+        # Substitua pelos seus dados reais
+        X = np.random.rand(550, 10)
+        Y = np.random.randint(0, 2, 550)
+
+        # Configurar a thread
+        self.worker = ValidationWorker(X, Y)
+        self.worker.progress_updated.connect(self.update_progress_bar)
+        self.worker.work_finished.connect(self.on_work_done)
+        self.worker.start()
+
+    def update_progress_bar(self, value):
+        self.progress_bar.setValue(value)
+
+    def on_work_done(self, message):
+        self.start_button.setEnabled(True)
+        self.progress_bar.setValue(100)
+        print(message)  # Substitua por algo mais adequado, se necessário
+
+
+class ProgressWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Validação Cruzada - XGBOOST")
+        self.setGeometry(300, 200, 400, 200)
+        self.setWindowModality(Qt.ApplicationModal)  # Janela modal para evitar conflitos
+
+        # Layout principal
+        self.layout = QVBoxLayout(self)
+
+        # Adicionar o componente de progresso
+        self.progress_component = ProgressComponent(self)
+        self.layout.addWidget(self.progress_component)
+
+
+class ValidationWorker(QThread):
+    progress_updated = pyqtSignal(int)  # Emite o progresso (%)
+    work_finished = pyqtSignal(str)    # Emite o resultado final (mensagem)
+
+    def __init__(self, X, Y, parent=None):
+        super().__init__(parent)
+        self.X = X
+        self.Y = Y
+
+    def run(self):
+        model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+        pacientes_indices = np.arange(55)
+        grupos = np.repeat(pacientes_indices, 10)
+        logo = LeaveOneGroupOut()
+
+        scores = []
+        total_splits = len(list(logo.split(self.X, self.Y, grupos)))
+        current_split = 0
+
+        for train_index, test_index in logo.split(self.X, self.Y, grupos):
+            X_train, X_test = self.X[train_index], self.X[test_index]
+            Y_train, Y_test = self.Y[train_index], self.Y[test_index]
+
+            model.fit(X_train, Y_train)
+            accuracy = model.score(X_test, Y_test)
+            scores.append(accuracy)
+            
+            print(test_index," ",accuracy)
+            
+            # Atualiza progresso
+            current_split += 1
+            progress = int((current_split / total_splits) * 100)
+            self.progress_updated.emit(progress)
+
+        # Resultados finais
+        mean_accuracy = np.mean(scores)
+        std_accuracy = np.std(scores)
+        result_message = (
+            f"Acurácia média (cross-validation): {mean_accuracy:.2f}\n"
+            f"Desvio padrão (cross-validation): {std_accuracy:.2f}"
+        )
+        self.work_finished.emit(result_message)
+
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 def test_inception_cross_val(X, Y):
     print(X.shape)
@@ -799,7 +892,7 @@ if __name__ == '__main__':
 
     X, Y = preparate_data_rois("./data_real.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    test_inception_cross_val(X, Y)
+    #test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
