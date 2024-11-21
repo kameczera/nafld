@@ -20,6 +20,10 @@ from sklearn.model_selection import LeaveOneGroupOut,  cross_val_score
 from tensorflow import keras
 from keras.applications.inception_v3 import InceptionV3
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from keras.layers import GlobalAveragePooling2D, Dense, Input
+from tensorflow.keras.models import Model
+from keras.layers import Dense, Flatten
+
 
 class ProcessadorDeImagens(QMainWindow):
     def __init__(self, imagens=None):
@@ -735,39 +739,43 @@ def test_xgboost_cross_val(X, Y):
 
         accuracy = model.score(X_test, Y_test)
         scores.append(accuracy)
-        print(accuracy)
 
     print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
     print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
 
 def test_inception_cross_val(X, Y):
+    print(X.shape)
     pacientes_indices = np.arange(55)
     grupos = np.repeat(pacientes_indices, 10)
     logo = LeaveOneGroupOut()
 
-    model = InceptionV3(weights='imagenet')
+    input_tensor = Input(shape=(28, 28, 3))
+    model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
+    x = model.output
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(1, activation='sigmoid')(x)
 
-    logo = LeaveOneGroupOut()
+    model = Model(inputs=model.input, outputs=x)
+    
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
     accuracies = []
 
-    X = resize_images(X)
-
     for train_idx, test_idx in logo.split(X, Y, grupos):
-        # Dividir os dados em treino e teste
+        print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
+
         X_train, X_test = X[train_idx], X[test_idx]
         Y_train, Y_test = Y[train_idx], Y[test_idx]
 
-        # Pré-processamento das imagens
-        train_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
-        test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
+        train_datagen = ImageDataGenerator(preprocessing_function=None)
+        test_datagen = ImageDataGenerator(preprocessing_function=None)
 
         train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
         test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
+    
+        print("Iniciando o treinamento...")
+        model.fit(train_generator, epochs=5, verbose=0)
 
-        # Treinar o modelo
-        model.fit(train_generator, epochs=5, verbose=0)  # Ajuste o número de épocas
-
-        # Avaliar o modelo
         accuracy = model.evaluate(test_generator, verbose=0)[1]
         accuracies.append(accuracy)
 
@@ -785,18 +793,6 @@ def obtain_steatosis_images():
     data.keys()
     data_array = data['data']
     return data_array['images'][0]
-
-def resize_images(X):
-    resized_images = []
-    for image in X:
-        # Reconstruir a imagem original (28x28)
-        image = image.reshape(28, 28)
-        # Redimensionar para 299x299
-        image_resized = cv2.resize(image, (299, 299), interpolation=cv2.INTER_LINEAR)
-        # Converter para 3 canais (repetir os valores para RGB)
-        image_resized_rgb = np.stack([image_resized] * 3, axis=-1)
-        resized_images.append(image_resized_rgb)
-    return np.array(resized_images)
 
 if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
