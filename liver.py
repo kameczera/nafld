@@ -16,9 +16,10 @@ import numpy as np
 import cv2
 import csv
 import xgboost as xgb
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import cross_val_score
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import LeaveOneGroupOut,  cross_val_score
+from tensorflow import keras
+from keras.applications.inception_v3 import InceptionV3
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
 class ProcessadorDeImagens(QMainWindow):
     def __init__(self, imagens=None):
@@ -524,10 +525,10 @@ class ImageViewer(QGraphicsView):
         margin = 5 # Margem de detecção de proximidade de borda (Mudar caso necessário)
 
         # Rosa dos ventos (Leste, Norte, Oeste, Sul - 1, 2, 3, 4) simplesmente para deixar o código mais eficiente, se tiver muito ilegível mudar
-        if (abs(pos.x() - band_rect.right()) < margin): return 1 
-        elif (abs(pos.y() - band_rect.top()) < margin): return 2
-        elif (abs(pos.x() - band_rect.left()) < margin): return 3
-        elif (abs(pos.y() - band_rect.bottom()) < margin): return 4
+        # if (abs(pos.x() - band_rect.right()) < margin): return 1 
+        # elif (abs(pos.y() - band_rect.top()) < margin): return 2
+        # elif (abs(pos.x() - band_rect.left()) < margin): return 3
+        # elif (abs(pos.y() - band_rect.bottom()) < margin): return 4
         
         return -1
 
@@ -701,7 +702,6 @@ class ToolBarImages(QToolBar):
 
 def preparate_data_rois(path, images_liver):
     X, Y = [], []
-    seen_ids = set()
     with open(path, mode='r', encoding='utf-8') as file:
         csv_dict = csv.DictReader(file)
         for line in csv_dict:
@@ -719,18 +719,60 @@ def preparate_data_rois(path, images_liver):
     return np.array(X), np.array(Y)
 
 def test_xgboost_cross_val(X, Y):
-    
-    # Criar o modelo XGBoost
     model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
-    
     print("Treinando o modelo com validação cruzada...")
     pacientes_indices = np.arange(55)
     grupos = np.repeat(pacientes_indices, 10)
-    gkf = GroupKFold(n_splits=5)
-    print(grupos)
-
-    scores = cross_val_score(model, X, Y, cv=gkf.split(X, Y, grupos), scoring='accuracy')
+    logo = LeaveOneGroupOut()
     
+    scores = []
+    for train_index, test_index in logo.split(X, Y, grupos):
+        print(test_index)
+        X_train, X_test = X[train_index], X[test_index]
+        Y_train, Y_test = Y[train_index], Y[test_index]
+
+        model.fit(X_train, Y_train)
+
+        accuracy = model.score(X_test, Y_test)
+        scores.append(accuracy)
+        print(accuracy)
+
+    print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
+    print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
+
+def test_inception_cross_val(X, Y):
+    pacientes_indices = np.arange(55)
+    grupos = np.repeat(pacientes_indices, 10)
+    logo = LeaveOneGroupOut()
+
+    model = InceptionV3(weights='imagenet')
+
+    logo = LeaveOneGroupOut()
+    accuracies = []
+
+    X = resize_images(X)
+
+    for train_idx, test_idx in logo.split(X, Y, grupos):
+        # Dividir os dados em treino e teste
+        X_train, X_test = X[train_idx], X[test_idx]
+        Y_train, Y_test = Y[train_idx], Y[test_idx]
+
+        # Pré-processamento das imagens
+        train_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
+        test_datagen = ImageDataGenerator(preprocessing_function=preprocess_input)
+
+        train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
+        test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
+
+        # Treinar o modelo
+        model.fit(train_generator, epochs=5, verbose=0)  # Ajuste o número de épocas
+
+        # Avaliar o modelo
+        accuracy = model.evaluate(test_generator, verbose=0)[1]
+        accuracies.append(accuracy)
+
+        print(f"Iteração concluída. Acurácia: {accuracy:.2f}")
+
     print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
     print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
 
@@ -744,13 +786,24 @@ def obtain_steatosis_images():
     data_array = data['data']
     return data_array['images'][0]
 
+def resize_images(X):
+    resized_images = []
+    for image in X:
+        # Reconstruir a imagem original (28x28)
+        image = image.reshape(28, 28)
+        # Redimensionar para 299x299
+        image_resized = cv2.resize(image, (299, 299), interpolation=cv2.INTER_LINEAR)
+        # Converter para 3 canais (repetir os valores para RGB)
+        image_resized_rgb = np.stack([image_resized] * 3, axis=-1)
+        resized_images.append(image_resized_rgb)
+    return np.array(resized_images)
+
 if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
 
     X, Y = preparate_data_rois("./data_real.csv", imagens_liver)
-    print(len(X), len(Y))
-    test_results = test_xgboost_cross_val(X, Y)
-
+    # test_results = test_xgboost_cross_val(X, Y)
+    test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
