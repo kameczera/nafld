@@ -151,6 +151,9 @@ class ProcessadorDeImagens(QMainWindow):
         arr = np.array(ptr).reshape((height, width))
 
         return arr
+    
+
+
 
 
 class MomentHu(QWidget):
@@ -195,6 +198,9 @@ class MomentHu(QWidget):
         arr = np.array(ptr).reshape((height, width))
 
         return arr
+    
+
+
 
 class CropWindow(QWidget):
 
@@ -237,6 +243,8 @@ class CropWindow(QWidget):
         # Fígado com Hi ------------------------------------------------------------- #
 
         self.new_liver_pix_map = self.calculate_hi(organ_images)
+        momentosHu = self.salvarMomentHuCSV(self.new_liver_pix_map)
+        print(momentosHu)
         pixmap_item = QGraphicsPixmapItem(self.new_liver_pix_map)
         self.scene.addItem(pixmap_item)
 
@@ -257,6 +265,32 @@ class CropWindow(QWidget):
         layout.addWidget(self.view)
         self.setLayout(layout)
         self.show()
+
+    def qpixmap_to_numpy(self, pixmap):
+        qimage = pixmap.toImage()
+        width = qimage.width()
+        height = qimage.height()
+
+        ptr = qimage.bits()
+        ptr.setsize(height * width)
+        arr = np.array(ptr).reshape((height, width))
+
+        return arr
+    
+
+    def salvarMomentHuCSV(self,new_liver_pix_map):
+        pixmap_atual = new_liver_pix_map
+        imagem = self.qpixmap_to_numpy(pixmap_atual)  # Converter QPixmap para numpy
+
+        if imagem is not None:
+            momentos_centrais = cv2.moments(imagem)
+            hu_moments = cv2.HuMoments(momentos_centrais).flatten()
+            momentos_hu = hu_moments.tolist()  # Converte os momentos de Hu para uma lista
+            # Agora os momentos de Hu estão salvos no vetor momentos_hu
+            # Caso queira retornar ou utilizar o vetor momentos_hu em outra parte do código:
+            return momentos_hu
+        else:
+            print("Erro:Nao foi possivel salvar o Hu junto com a ROI")
 
     def calculate_hi(self, organ_images):
         liver = self.calculate_avg(organ_images["fígado"]["pixmap"])
@@ -644,18 +678,20 @@ class ToolBarImages(QToolBar):
             self.has_selected_kidney = True
             organ = "rim"
 
+        #EntropiaHomogeneidadeCSV = salvar_entropia_homogeneidadeCSV()
         self.organ_images[organ] = {
             "pixmap": crop_qpixmap,
             "coords": (coord_x, coord_y),
             "organ": organ
         }
 
+
         if self.has_selected_liver and self.has_selected_cortex and self.has_selected_kidney:
             self.crop_window = CropWindow(self.organ_images)
             coords_liver = self.organ_images["fígado"]["coords"]
             coords_kidney = self.organ_images["rim"]["coords"]
             # new_liver_pix_map nao é passado por emit pois self.save_img precisa de todos esses parametros para funcionar
-            self.save_img(self.crop_window.get_new_liver_pix_map(), f"ROI_{pacient_n}_{image_n}", coords_liver, coords_kidney, pacient_n, self.crop_window.get_hi())
+            self.save_img(self.crop_window.get_new_liver_pix_map(),f"ROI_{pacient_n}_{image_n}", coords_liver, coords_kidney, pacient_n, self.crop_window.get_hi()) #passar os descritores
             # nao precisa das ROIs do rim
             # self.save_img(self.organ_images["rim"]["pixmap"], f"RIM_{pacient_n}_{image_n}", coord_x, coord_y, pacient_n)
 
@@ -751,9 +787,7 @@ class ProgressComponent(QWidget):
     def start_validation(self):
         self.start_button.setEnabled(False)
 
-        # Substitua pelos seus dados reais
-        X = np.random.rand(550, 10)
-        Y = np.random.randint(0, 2, 550)
+        X, Y = preparate_data_rois("./data_real.csv", imagens_liver)
 
         # Configurar a thread
         self.worker = ValidationWorker(X, Y)
@@ -889,6 +923,27 @@ def resize_images(X):
         image_resized_rgb = np.stack([image_resized] * 3, axis=-1)
         resized_images.append(image_resized_rgb)
     return np.array(resized_images)
+
+
+
+def salvar_entropia_homogeneidadeCSV(self, imagem):
+    distancias = [1, 2, 4, 8]
+    angulos = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
+    homogeneidade = []  
+    entropia = []  
+
+    for a_idx, angulo in enumerate(angulos):
+        glcm = graycomatrix(imagem, distances=distancias, angles=[angulo], normed=True)
+        glcm_homogeneidade = graycoprops(glcm, 'homogeneity')[0, 0]
+        glcm_normed2D = glcm[:, :, 0, 0]
+        glcm_flattened = glcm_normed2D.ravel()  # Achata para ficar um vetor de probabilidade
+        glcm_entropia = entropy(glcm_flattened, base=2)
+        homogeneidade.append(glcm_homogeneidade)  # Armazena o valor de homogeneidade
+        entropia.append(glcm_entropia)  # Armazena o valor de entropia
+    
+    print("Entropia:",entropia)
+    print("Homogeneidade:",homogeneidade)
+    return homogeneidade, entropia
 
 if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
