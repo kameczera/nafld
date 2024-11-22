@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
+import seaborn as sns
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
 from PyQt5.QtWidgets import QProgressBar, QPushButton,QDialog
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette
@@ -13,12 +14,14 @@ import scipy.io
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import cv2
 import csv
 import ast
 import xgboost as xgb
 from sklearn.model_selection import LeaveOneGroupOut,  cross_val_score
+from sklearn.metrics import confusion_matrix
 from tensorflow import keras
 from keras.applications.inception_v3 import InceptionV3
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
@@ -391,6 +394,9 @@ class MenuBar(QMenuBar):
         IA_action.triggered.connect(self.IA_signal.emit)
         IA_menu.addAction(IA_action)
 
+        Inception_action = QAction('INCEPTION', self)
+        Inception_action.triggered.connect(self.IA_signal.emit)
+        IA_menu.addAction(Inception_action)
 
     def open_image(self, file_name):
         options = QFileDialog.Options()
@@ -788,7 +794,7 @@ def preparate_descriptors(path):
 
                 features = hu + homogeneity + entropy
 
-                label = 1 if line["Classe"] == "saudavel" else 0
+                label = 0 if line["Classe"] == "saudavel" else 1
                 X.append(features)
                 Y.append(label)
             except (ValueError, SyntaxError, KeyError) as e:
@@ -822,6 +828,12 @@ class ProgressComponent(QWidget):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
 
+
+        # Widget para matriz de confusão
+        self.confusion_canvas = FigureCanvas(Figure(figsize=(5, 3)))
+        self.layout.addWidget(self.confusion_canvas)
+        self.confusion_ax = self.confusion_canvas.figure.add_subplot(111)  # Eixo para o gráfico
+
         # Barra de progresso
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setValue(0)
@@ -844,6 +856,7 @@ class ProgressComponent(QWidget):
         self.worker = ValidationWorker(X, Y)
         self.worker.progress_updated.connect(self.update_progress_bar)
         self.worker.work_finished.connect(self.on_work_done)
+        self.worker.confusion_ready.connect(self.display_confusion_matrix)
         self.worker.start()
 
     def update_progress_bar(self, value):
@@ -855,12 +868,52 @@ class ProgressComponent(QWidget):
         print(message)  # Substitua por algo mais adequado, se necessário
 
 
+    def display_confusion_matrix(self, conf_matrix):
+        # Limpa o eixo e plota a matriz de confusão
+        self.confusion_ax.clear()
+
+        # Extrai os valores de VN, FP, FN e TP
+        TN, FP, FN, TP = conf_matrix.ravel()
+
+        # Formata o texto para cada célula da matriz de confusão
+        # Aqui concatenamos as informações extras como VN, FP, FN e TP com os números já anotados
+        annotations = [
+            [f"{TN}\nVN", f"{FP}\nFP"],
+            [f"{FN}\nFN", f"{TP}\nTP"]
+        ]
+
+        # Adiciona o gráfico de matriz de confusão com as anotações personalizadas
+        sns.heatmap(conf_matrix, annot=annotations, fmt="s", cmap="Greens", ax=self.confusion_ax,
+                    cbar=False, square=True, linewidths=1, linecolor='black')
+
+        # Configurações adicionais para o gráfico
+        self.confusion_ax.set_title("Matriz de Confusão")
+        self.confusion_ax.set_xlabel("Predito")
+        self.confusion_ax.set_ylabel("Real")
+
+        # Atualiza o canvas
+        self.confusion_canvas.draw()
+
+        
+
+
 class ProgressWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Validação Cruzada - XGBOOST")
-        self.setGeometry(300, 200, 400, 200)
-        self.setWindowModality(Qt.ApplicationModal)  # Janela modal para evitar conflitos
+        
+        # Definir o tamanho da janela
+        self.setGeometry(600, 400, 800, 600)
+        
+        # Centralizar a janela na tela
+        screen = self.screen()  # Obtém a tela atual
+        rect = screen.availableGeometry()  # Obtém a geometria da tela
+        x = (rect.width() - self.width()) // 2  # Calcula a posição horizontal centralizada
+        y = (rect.height() - self.height()) // 2  # Calcula a posição vertical centralizada
+        self.move(x, y)  # Move a janela para o centro
+
+        # Tornar a janela modal para evitar conflitos
+        self.setWindowModality(Qt.ApplicationModal)
 
         # Layout principal
         self.layout = QVBoxLayout(self)
@@ -873,6 +926,7 @@ class ProgressWindow(QDialog):
 class ValidationWorker(QThread):
     progress_updated = pyqtSignal(int)  # Emite o progresso (%)
     work_finished = pyqtSignal(str)    # Emite o resultado final (mensagem)
+    confusion_ready = pyqtSignal(np.ndarray)  # Para enviar a matriz de confusão
 
     def __init__(self, X, Y, parent=None):
         super().__init__(parent)
@@ -886,6 +940,8 @@ class ValidationWorker(QThread):
         logo = LeaveOneGroupOut()
 
         scores = []
+        all_y_true = []
+        all_y_pred = []
         total_splits = len(list(logo.split(self.X, self.Y, grupos)))
         current_split = 0
 
@@ -894,6 +950,9 @@ class ValidationWorker(QThread):
             Y_train, Y_test = self.Y[train_index], self.Y[test_index]
 
             model.fit(X_train, Y_train)
+            y_pred = model.predict(X_test)
+            all_y_true.extend(Y_test)
+            all_y_pred.extend(y_pred)
             accuracy = model.score(X_test, Y_test)
             scores.append(accuracy)
             
@@ -907,11 +966,26 @@ class ValidationWorker(QThread):
         # Resultados finais
         mean_accuracy = np.mean(scores)
         std_accuracy = np.std(scores)
+        # Calcular matriz de confusão
+        conf_matrix = confusion_matrix(all_y_true, all_y_pred)
+        TN, FP, FN, TP = conf_matrix.ravel()  # Extrai os valores diretamente
+        
+        # Calcular métricas
+        acuracia = (TP + TN) / (TP + TN + FP + FN)
+        sensibilidade = TP / (TP + FN)
+        especificidade = TN / (TN + FP)
         result_message = (
             f"Acurácia média (cross-validation): {mean_accuracy:.2f}\n"
-            f"Desvio padrão (cross-validation): {std_accuracy:.2f}"
+            f"Desvio padrão (cross-validation): {std_accuracy:.2f}\n"
+            f"Métricas da matriz de confusão:\n"
+            f"Acurácia: {acuracia:.2f}\n"
+            f"Sensibilidade: {sensibilidade:.2f}\n"
+            f"Especificidade: {especificidade:.2f}"
         )
         self.work_finished.emit(result_message)
+        # Calcular matriz de confusão
+       #conf_matrix = confusion_matrix(all_y_true, all_y_pred)
+        self.confusion_ready.emit(conf_matrix)
 
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -974,25 +1048,6 @@ def obtain_steatosis_images():
     data_array = data['data']
     return data_array['images'][0]
 
-
-def salvar_entropia_homogeneidadeCSV(self, imagem):
-    distancias = [1, 2, 4, 8]
-    angulos = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
-    homogeneidade = []  
-    entropia = []  
-
-    for a_idx, angulo in enumerate(angulos):
-        glcm = graycomatrix(imagem, distances=distancias, angles=[angulo], normed=True)
-        glcm_homogeneidade = graycoprops(glcm, 'homogeneity')[0, 0]
-        glcm_normed2D = glcm[:, :, 0, 0]
-        glcm_flattened = glcm_normed2D.ravel()  # Achata para ficar um vetor de probabilidade
-        glcm_entropia = entropy(glcm_flattened, base=2)
-        homogeneidade.append(glcm_homogeneidade)  # Armazena o valor de homogeneidade
-        entropia.append(glcm_entropia)  # Armazena o valor de entropia
-    
-    print("Entropia:",entropia)
-    print("Homogeneidade:",homogeneidade)
-    return homogeneidade, entropia
 
 if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
