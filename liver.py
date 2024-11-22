@@ -16,6 +16,7 @@ from matplotlib.figure import Figure
 import numpy as np
 import cv2
 import csv
+import ast
 import xgboost as xgb
 from sklearn.model_selection import LeaveOneGroupOut,  cross_val_score
 from tensorflow import keras
@@ -24,6 +25,8 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from keras.layers import GlobalAveragePooling2D, Dense, Input
 from tensorflow.keras.models import Model
 from keras.layers import Dense, Flatten
+import tensorflow as tf
+from tensorflow.image import resize
 
 
 class ProcessadorDeImagens(QMainWindow):
@@ -112,7 +115,7 @@ class ProcessadorDeImagens(QMainWindow):
             glcm = graycomatrix(self.imagem, distances=[distancia], angles=[angulo], normed=True)
             glcm_homogeneidade = graycoprops(glcm, 'homogeneity')[0, 0]
             glcm_normed2D = glcm[:, :, 0, 0]
-            glcm_flattened = glcm_normed2D.ravel()  # Achata para ficar um vetor de probabilidade
+            glcm_flattened = glcm_normed2D.ravel()
             glcm_entropia = entropy(glcm_flattened, base=2)
 
             ax = self.axs.flatten()[a_idx]
@@ -247,8 +250,9 @@ class CropWindow(QWidget):
         # Fígado com Hi ------------------------------------------------------------- #
 
         self.new_liver_pix_map = self.calculate_hi(organ_images)
-        momentosHu = self.salvarMomentHuCSV(self.new_liver_pix_map)
-        print(momentosHu)
+        self.new_liver_numpy = self.qpixmap_to_numpy(self.new_liver_pix_map)
+        momentosHu = self.get_moment_hu()
+        homogeneity_entropy = self.calculate_homogeneity_entropy()
         pixmap_item = QGraphicsPixmapItem(self.new_liver_pix_map)
         self.scene.addItem(pixmap_item)
 
@@ -280,18 +284,27 @@ class CropWindow(QWidget):
         arr = np.array(ptr).reshape((height, width))
 
         return arr
-    
 
-    def salvarMomentHuCSV(self,new_liver_pix_map):
-        pixmap_atual = new_liver_pix_map
-        imagem = self.qpixmap_to_numpy(pixmap_atual)  # Converter QPixmap para numpy
+    def calculate_homogeneity_entropy(self):
+        distances = [1, 2, 4, 8]
+        angles = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
+        homogeneity_results = []
+        entropy_results = []
+        for a_idx, angle in enumerate(angles):
+            glcm = graycomatrix(self.new_liver_numpy, distances=distances, angles=[angle], normed=True)
+            glcm_homogeneity = graycoprops(glcm, 'homogeneity')[0, 0]
+            glcm_normed2D = glcm[:, :, 0, 0]
+            glcm_flattened = glcm_normed2D.ravel()
+            glcm_entropy = entropy(glcm_flattened, base=2)
+            homogeneity_results.append(glcm_homogeneity)
+            entropy_results.append(glcm_entropy)
+        return homogeneity_results, entropy_results
 
-        if imagem is not None:
-            momentos_centrais = cv2.moments(imagem)
+    def get_moment_hu(self):
+        if self.new_liver_numpy is not None:
+            momentos_centrais = cv2.moments(self.new_liver_numpy)
             hu_moments = cv2.HuMoments(momentos_centrais).flatten()
-            momentos_hu = hu_moments.tolist()  # Converte os momentos de Hu para uma lista
-            # Agora os momentos de Hu estão salvos no vetor momentos_hu
-            # Caso queira retornar ou utilizar o vetor momentos_hu em outra parte do código:
+            momentos_hu = hu_moments.tolist()
             return momentos_hu
         else:
             print("Erro:Nao foi possivel salvar o Hu junto com a ROI")
@@ -695,11 +708,12 @@ class ToolBarImages(QToolBar):
             coords_liver = self.organ_images["fígado"]["coords"]
             coords_kidney = self.organ_images["rim"]["coords"]
             # new_liver_pix_map nao é passado por emit pois self.save_img precisa de todos esses parametros para funcionar
-            self.save_img(self.crop_window.get_new_liver_pix_map(),f"ROI_{pacient_n}_{image_n}", coords_liver, coords_kidney, pacient_n, self.crop_window.get_hi()) #passar os descritores
+            self.save_img(self.crop_window.get_new_liver_pix_map(),f"ROI_{pacient_n}_{image_n}", coords_liver, coords_kidney, pacient_n, self.crop_window.get_hi(), self.crop_window.get_moment_hu(), self.crop_window.calculate_homogeneity_entropy())
             # nao precisa das ROIs do rim
             # self.save_img(self.organ_images["rim"]["pixmap"], f"RIM_{pacient_n}_{image_n}", coord_x, coord_y, pacient_n)
 
-    def save_img(self, crop_qpixmap, file_name, coords_liver, coords_kidney, pacient_n, hi):
+    def save_img(self, crop_qpixmap, file_name, coords_liver, coords_kidney, pacient_n, hi, hu, homogeneity_entropy):
+        homogeneity, entropy = homogeneity_entropy
         child_item = QTreeWidgetItem(self.cropped_imgs_node)
         child_item.setText(0, file_name)
         child_item.setText(1, f"C")
@@ -711,6 +725,9 @@ class ToolBarImages(QToolBar):
         else:
             child_item.setText(5, "esteatose")
         child_item.setText(6, f"{hi}")
+        child_item.setText(7, f"{hu}")
+        child_item.setText(8, f"{homogeneity}")
+        child_item.setText(9, f"{entropy}")
 
 
         self.pixmap_dictionary[f"C-{self.crop_id}"] = crop_qpixmap
@@ -740,6 +757,9 @@ class ToolBarImages(QToolBar):
                 print(f"Canto superior esquerdo rim: ({node.text(4)})")
                 print(f"Altura: {height}, Comprimento: {width}")
                 print(f"Hi: ({node.text(6)})")
+                print(f"Hu: ({node.text(7)})")
+                print(f"Homoogeneidade: ({node.text(8)})")
+                print(f"Entropia: ({node.text(9)})")
                 print("-" * 30)
 
                 writer.writerow([
@@ -750,9 +770,36 @@ class ToolBarImages(QToolBar):
                 height,
                 width,
                 node.text(6),
+                node.text(7),
+                node.text(8),
+                node.text(9),
                 ])
 
-def preparate_data_rois(path, images_liver):
+def preparate_descriptors(path):
+    X = []
+    Y = []
+    with open(path, mode='r', encoding='utf-8') as file:
+        csv_dict = csv.DictReader(file)
+        for line in csv_dict:
+            try:
+                hu = ast.literal_eval(line["Hu"])
+                homogeneity = ast.literal_eval(line["Homogeneidade"])
+                entropy = ast.literal_eval(line["Entropia"])
+
+                features = hu + homogeneity + entropy
+
+                label = 1 if line["Classe"] == "saudavel" else 0
+                X.append(features)
+                Y.append(label)
+            except (ValueError, SyntaxError, KeyError) as e:
+                print(f"Erro ao processar linha: {line}, erro: {e}")
+    
+    # Converte para arrays NumPy para usar no XGBoost
+    return np.array(X, dtype=np.float32), np.array(Y, dtype=np.int32)
+
+
+
+def preparate_image_rois(path, images_liver):
     X, Y = [], []
     with open(path, mode='r', encoding='utf-8') as file:
         csv_dict = csv.DictReader(file)
@@ -791,7 +838,7 @@ class ProgressComponent(QWidget):
     def start_validation(self):
         self.start_button.setEnabled(False)
 
-        X, Y = preparate_data_rois("./data_real.csv", imagens_liver)
+        X, Y = preparate_descriptors("./data1.csv")
 
         # Configurar a thread
         self.worker = ValidationWorker(X, Y)
@@ -869,14 +916,20 @@ class ValidationWorker(QThread):
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+def resize_all_images(X):
+    X = X.reshape((-1, 28, 28))  # Transformar para (550, 28, 28)
+    X = np.stack((X,) * 3, axis=-1)
+    X = np.array([resize(img, (76, 76)).numpy() for img in X])
+    return X
 
 def test_inception_cross_val(X, Y):
+    X = resize_all_images(X)
     print(X.shape)
     pacientes_indices = np.arange(55)
     grupos = np.repeat(pacientes_indices, 10)
     logo = LeaveOneGroupOut()
 
-    input_tensor = Input(shape=(28, 28, 3))
+    input_tensor = Input(shape=(76, 76, 3))
     model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
     x = model.output
     x = GlobalAveragePooling2D()(x)
@@ -900,8 +953,8 @@ def test_inception_cross_val(X, Y):
         train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
         test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
     
-        print("Iniciando o treinamento...")
-        model.fit(train_generator, epochs=5, verbose=0)
+        with tf.device('/GPU:0'):  # Define explicitamente o uso da GPU
+            model.fit(train_generator, epochs=5, verbose=1)
 
         accuracy = model.evaluate(test_generator, verbose=0)[1]
         accuracies.append(accuracy)
@@ -920,19 +973,6 @@ def obtain_steatosis_images():
     data.keys()
     data_array = data['data']
     return data_array['images'][0]
-
-def resize_images(X):
-    resized_images = []
-    for image in X:
-        # Reconstruir a imagem original (28x28)
-        image = image.reshape(28, 28)
-        # Redimensionar para 299x299
-        image_resized = cv2.resize(image, (299, 299), interpolation=cv2.INTER_LINEAR)
-        # Converter para 3 canais (repetir os valores para RGB)
-        image_resized_rgb = np.stack([image_resized] * 3, axis=-1)
-        resized_images.append(image_resized_rgb)
-    return np.array(resized_images)
-
 
 
 def salvar_entropia_homogeneidadeCSV(self, imagem):
@@ -956,10 +996,9 @@ def salvar_entropia_homogeneidadeCSV(self, imagem):
 
 if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
-
-    X, Y = preparate_data_rois("./data_real.csv", imagens_liver)
+    X, Y = preparate_image_rois("./data1.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    #test_inception_cross_val(X, Y)
+    # test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
