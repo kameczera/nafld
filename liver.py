@@ -30,6 +30,7 @@ from tensorflow.keras.models import Model
 from keras.layers import Dense, Flatten
 import tensorflow as tf
 from tensorflow.image import resize
+import os
 
 
 class ProcessadorDeImagens(QMainWindow):
@@ -293,14 +294,15 @@ class CropWindow(QWidget):
         angles = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
         homogeneity_results = []
         entropy_results = []
-        for a_idx, angle in enumerate(angles):
-            glcm = graycomatrix(self.new_liver_numpy, distances=distances, angles=[angle], normed=True)
-            glcm_homogeneity = graycoprops(glcm, 'homogeneity')[0, 0]
-            glcm_normed2D = glcm[:, :, 0, 0]
-            glcm_flattened = glcm_normed2D.ravel()
-            glcm_entropy = entropy(glcm_flattened, base=2)
-            homogeneity_results.append(glcm_homogeneity)
-            entropy_results.append(glcm_entropy)
+        for distance_idx, distance in enumerate(distances):
+            for angle_idx, angle in enumerate(angles):
+                glcm = graycomatrix(self.new_liver_numpy, distances=[distance], angles=[angle], normed=True)
+                glcm_homogeneity = graycoprops(glcm, 'homogeneity')[0, 0]
+                glcm_normed2D = glcm[:, :, 0, 0]
+                glcm_flattened = glcm_normed2D.ravel()
+                glcm_entropy = entropy(glcm_flattened, base=2)
+                homogeneity_results.append(glcm_homogeneity)
+                entropy_results.append(glcm_entropy)
         return homogeneity_results, entropy_results
 
     def get_moment_hu(self):
@@ -738,6 +740,8 @@ class ToolBarImages(QToolBar):
 
 
         self.pixmap_dictionary[f"C-{self.crop_id}"] = crop_qpixmap
+        # img = crop_qpixmap.toImage() 
+        # img.save(f"./rois/{file_name}.png")
         self.crop_id += 1
 
     def save_all_crops(self):
@@ -829,31 +833,25 @@ class ProgressComponent(QWidget):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
 
-
-        # Widget para matriz de confusão
         self.confusion_canvas = FigureCanvas(Figure(figsize=(5, 3)))
         self.layout.addWidget(self.confusion_canvas)
-        self.confusion_ax = self.confusion_canvas.figure.add_subplot(111)  # Eixo para o gráfico
+        self.confusion_ax = self.confusion_canvas.figure.add_subplot(111)
 
-        # Barra de progresso
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setValue(0)
         self.layout.addWidget(self.progress_bar)
 
-        # Botão de inicialização
         self.start_button = QPushButton("Iniciar Validação Cruzada", self)
         self.start_button.clicked.connect(self.start_validation)
         self.layout.addWidget(self.start_button)
 
-        # Thread para o trabalho pesado
         self.worker = None
 
     def start_validation(self):
         self.start_button.setEnabled(False)
 
-        X, Y = preparate_descriptors("./data1.csv")
+        X, Y = preparate_descriptors("./og.csv")
 
-        # Configurar a thread
         self.worker = ValidationWorker(X, Y)
         self.worker.progress_updated.connect(self.update_progress_bar)
         self.worker.work_finished.connect(self.on_work_done)
@@ -866,33 +864,26 @@ class ProgressComponent(QWidget):
     def on_work_done(self, message):
         self.start_button.setEnabled(True)
         self.progress_bar.setValue(100)
-        print(message)  # Substitua por algo mais adequado, se necessário
+        print(message)
 
 
     def display_confusion_matrix(self, conf_matrix):
-        # Limpa o eixo e plota a matriz de confusão
         self.confusion_ax.clear()
 
-        # Extrai os valores de VN, FP, FN e TP
         TN, FP, FN, TP = conf_matrix.ravel()
 
-        # Formata o texto para cada célula da matriz de confusão
-        # Aqui concatenamos as informações extras como VN, FP, FN e TP com os números já anotados
         annotations = [
             [f"{TN}\nVN", f"{FP}\nFP"],
             [f"{FN}\nFN", f"{TP}\nTP"]
         ]
 
-        # Adiciona o gráfico de matriz de confusão com as anotações personalizadas
         sns.heatmap(conf_matrix, annot=annotations, fmt="s", cmap="Greens", ax=self.confusion_ax,
                     cbar=False, square=True, linewidths=1, linecolor='black')
 
-        # Configurações adicionais para o gráfico
         self.confusion_ax.set_title("Matriz de Confusão")
         self.confusion_ax.set_xlabel("Predito")
         self.confusion_ax.set_ylabel("Real")
 
-        # Atualiza o canvas
         self.confusion_canvas.draw()
 
         
@@ -903,31 +894,26 @@ class ProgressWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Validação Cruzada - XGBOOST")
         
-        # Definir o tamanho da janela
         self.setGeometry(600, 400, 800, 600)
         
-        # Centralizar a janela na tela
-        screen = self.screen()  # Obtém a tela atual
-        rect = screen.availableGeometry()  # Obtém a geometria da tela
-        x = (rect.width() - self.width()) // 2  # Calcula a posição horizontal centralizada
-        y = (rect.height() - self.height()) // 2  # Calcula a posição vertical centralizada
-        self.move(x, y)  # Move a janela para o centro
+        screen = self.screen()
+        rect = screen.availableGeometry()
+        x = (rect.width() - self.width()) // 2
+        y = (rect.height() - self.height()) // 2
+        self.move(x, y)
 
-        # Tornar a janela modal para evitar conflitos
         self.setWindowModality(Qt.ApplicationModal)
 
-        # Layout principal
         self.layout = QVBoxLayout(self)
 
-        # Adicionar o componente de progresso
         self.progress_component = ProgressComponent(self)
         self.layout.addWidget(self.progress_component)
 
 
 class ValidationWorker(QThread):
-    progress_updated = pyqtSignal(int)  # Emite o progresso (%)
-    work_finished = pyqtSignal(str)    # Emite o resultado final (mensagem)
-    confusion_ready = pyqtSignal(np.ndarray)  # Para enviar a matriz de confusão
+    progress_updated = pyqtSignal(int)
+    work_finished = pyqtSignal(str)
+    confusion_ready = pyqtSignal(np.ndarray)
 
     def __init__(self, X, Y, parent=None):
         super().__init__(parent)
@@ -943,6 +929,7 @@ class ValidationWorker(QThread):
         scores = []
         all_y_true = []
         all_y_pred = []
+        incorrect_indices = []
         total_splits = len(list(logo.split(self.X, self.Y, grupos)))
         current_split = 0
 
@@ -954,6 +941,10 @@ class ValidationWorker(QThread):
             y_pred = model.predict(X_test)
             all_y_true.extend(Y_test)
             all_y_pred.extend(y_pred)
+
+            incorrect = test_index[Y_test != y_pred]  # Indices de previsões incorretas
+            incorrect_indices.extend(incorrect)
+            
             accuracy = model.score(X_test, Y_test)
             scores.append(accuracy)
             
@@ -964,14 +955,13 @@ class ValidationWorker(QThread):
             progress = int((current_split / total_splits) * 100)
             self.progress_updated.emit(progress)
 
-        # Resultados finais
+        print(incorrect_indices)
+        print(len(incorrect_indices))
         mean_accuracy = np.mean(scores)
         std_accuracy = np.std(scores)
-        # Calcular matriz de confusão
         conf_matrix = confusion_matrix(all_y_true, all_y_pred)
-        TN, FP, FN, TP = conf_matrix.ravel()  # Extrai os valores diretamente
-        
-        # Calcular métricas
+        TN, FP, FN, TP = conf_matrix.ravel()
+
         acuracia = (TP + TN) / (TP + TN + FP + FN)
         sensibilidade = TP / (TP + FN)
         especificidade = TN / (TN + FP)
@@ -1005,18 +995,22 @@ def test_inception_cross_val(X, Y):
     logo = LeaveOneGroupOut()
 
     input_tensor = Input(shape=(76, 76, 3))
-    model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
-    x = model.output
+    base_model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
+    x = base_model.output
     x = GlobalAveragePooling2D()(x)
     x = Dense(1, activation='sigmoid')(x)
 
-    model = Model(inputs=model.input, outputs=x)
+    model = Model(inputs=base_model.input, outputs=x)
     
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
     accuracies = []
 
-    for train_idx, test_idx in logo.split(X, Y, grupos):
+    # Diretório para salvar os modelos
+    save_dir = "saved_models"
+    os.makedirs(save_dir, exist_ok=True)
+
+    for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
 
         X_train, X_test = X[train_idx], X[test_idx]
@@ -1036,8 +1030,13 @@ def test_inception_cross_val(X, Y):
 
         print(f"Iteração concluída. Acurácia: {accuracy:.2f}")
 
-    print(f"Acurácia média (cross-validation): {np.mean(scores):.2f}")
-    print(f"Desvio padrão (cross-validation): {np.std(scores):.2f}")
+        # Salvar o modelo após o treinamento
+        model_save_path = os.path.join(save_dir, f"model_iteration_{i}.h5")
+        model.save(model_save_path)
+        print(f"Modelo salvo em: {model_save_path}")
+
+    print(f"Acurácia média (cross-validation): {np.mean(accuracies):.2f}")
+    print(f"Desvio padrão (cross-validation): {np.std(accuracies):.2f}")
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def obtain_steatosis_images():
@@ -1052,9 +1051,9 @@ def obtain_steatosis_images():
 
 if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
-    X, Y = preparate_image_rois("./data1.csv", imagens_liver)
+    X, Y = preparate_image_rois("./og.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    # test_inception_cross_val(X, Y)
+    test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
