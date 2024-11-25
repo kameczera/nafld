@@ -647,6 +647,7 @@ class ToolBarImages(QToolBar):
             for id_image,image in enumerate(patient):
                 self.open_image_patients(image, id_pacient, id_image, patient_node)
 
+    
     def display_image(self, item, column):
         # Deixar Nós raiz inclicáveis (nós com header de paciente)
         if item.parent() is None:
