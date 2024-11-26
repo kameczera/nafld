@@ -7,7 +7,6 @@ from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
 import seaborn as sns
-import plotly.graph_objects as go
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
 from PyQt5.QtWidgets import QProgressBar, QPushButton,QDialog
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette
@@ -33,6 +32,7 @@ from keras.layers import GlobalAveragePooling2D, Dense, Input
 from tensorflow.keras.models import Model
 from keras.layers import Dense, Flatten
 import tensorflow as tf
+from keras.models import load_model
 from tensorflow.image import resize
 import os
 
@@ -1079,53 +1079,35 @@ def test_inception_cross_val(X, Y):
 
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
-
-        if i > 1: break
-        # Criar um novo modelo em cada iteração
-        input_tensor = Input(shape=(76, 76, 3))
-        base_modelo = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
-        x = base_modelo.output
-        x = GlobalAveragePooling2D()(x)
-        x = Dense(1, activation='sigmoid')(x)
-
-        model = Model(inputs=base_modelo.input, outputs=x)
+        model = load_model(f"./saved_models/model_iteration_{i}.h5")
 
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
         X_train, X_test = X[train_idx], X[test_idx]
         Y_train, Y_test = Y[train_idx], Y[test_idx]
 
-        train_datagen = ImageDataGenerator(preprocessing_function=None)
-        test_datagen = ImageDataGenerator(preprocessing_function=None)
-
-        train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
-        test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
-
-        with tf.device('/GPU:0'):  # Define explicitamente o uso da GPU
-            model.fit(train_generator, epochs=5, verbose=1)
+        with tf.device('/GPU:0'):
             y_pred = model.predict(X_test)
 
-            # Converter y_pred de probabilidades para 0 ou 1
             y_pred_class = (y_pred > 0.5).astype(int)  # Converte probabilidades para 0 ou 1
 
             all_y_true.extend(Y_test)
             all_y_pred.extend(y_pred_class)  # Usar y_pred_class (rótulos binários)
 
-        acuracia = model.evaluate(test_generator, verbose=0)[1]
-        acuracias.append(acuracia)
-
-        print(f"Iteração concluída. Acurácia: {acuracia:.2f}")
-
-        # Salvar o modelo após o treinamento
-        salvar_modelo_path = os.path.join(save_dir, f"model_iteration_{i}.h5")
-        model.save(salvar_modelo_path)
-        print(f"Modelo salvo em: {salvar_modelo_path}")
-
-        precisao_media = np.mean(acuracias)
-        std_acuracias = np.std(acuracias)
-
         # Calcular a matriz de confusão
         matriz_confusao = confusion_matrix(all_y_true, all_y_pred, labels=[0, 1])
+        fig, ax = plt.subplots(figsize=(6, 5))
+        sns.heatmap(matriz_confusao, annot=True, fmt="d", cmap="Blues", 
+            xticklabels=["Predito Negativo", "Predito Positivo"],
+            yticklabels=["Real Negativo", "Real Positivo"], cbar=False, ax=ax)
+        ax.set_title(f'Matriz de Confusão - Validação Cruzada {i+1}')
+        ax.set_ylabel('Real')
+        ax.set_xlabel('Predito')
+
+
+        # Salvando a imagem
+        plt.savefig(f"./matrizes/matriz_confusao{i}.png")
+        plt.close()
         matriz_confusaoList.append(matriz_confusao)  # Salvar a matriz de confusão
 
         if matriz_confusao.shape == (2, 2):
@@ -1138,26 +1120,18 @@ def test_inception_cross_val(X, Y):
         sensibilidade = TP / (TP + FN)
         especificidade = TN / (TN + FP)
         resultado_mensagem = (
-            f"Acurácia média (cross-validation): {precisao_media:.2f}\n"
-            f"Desvio padrão (cross-validation): {std_acuracias:.2f}\n"
             f"Métricas da matriz de confusão:\n"
             f"Acurácia: {acuracia:.2f}\n"
             f"Sensibilidade: {sensibilidade:.2f}\n"
             f"Especificidade: {especificidade:.2f}"
         )
-        print(resultado_mensagem)
-
-    # Exibição interativa das matrizes de confusão
+    print(resultado_mensagem)
     fig, ax = plt.subplots(figsize=(6, 6))
-    index_atual = [0]  # Controlador para navegação entre matrizes
+    index_atual = [0]
     plt.subplots_adjust(bottom=0.15)
-
-    # Conectar os eventos de tecla para navegação entre as matrizes
     fig.canvas.mpl_connect('key_press_event', lambda event: proxima_iteracao(event, index_atual, ax, matriz_confusaoList) if event.key == 'right' else iteracao_anterior(event, index_atual, ax, matriz_confusaoList) if event.key == 'left' else None)
-
-    atualizarInceptionConfusao(0, ax, matriz_confusaoList)  # Exibir a primeira matriz de confusão
+    atualizarInceptionConfusao(0, ax, matriz_confusaoList)
     plt.show()
-
     print(f"Acurácia média (cross-validation): {np.mean(acuracias):.2f}")
     print(f"Desvio padrão (cross-validation): {np.std(acuracias):.2f}")
 
