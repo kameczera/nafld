@@ -7,6 +7,7 @@ from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
 import seaborn as sns
+import time
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
 from PyQt5.QtWidgets import QProgressBar, QPushButton,QDialog
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette,QPen,QBrush
@@ -960,6 +961,8 @@ class ProgressWindow(QDialog):
 
 
 class Xgboost(QThread):
+
+
     progresso_atualizado = pyqtSignal(int)
     trabalho_finalizado = pyqtSignal(str)
     confusao_pronta = pyqtSignal(np.ndarray)
@@ -970,6 +973,7 @@ class Xgboost(QThread):
         self.Y = Y
 
     def run(self):
+        inicio = time.time()
         model = xgb.XGBClassifier(use_label_encoder=False)
         pacientes_indices = np.arange(55)
         grupos = np.repeat(pacientes_indices, 10)
@@ -1023,6 +1027,8 @@ class Xgboost(QThread):
             f"Sensibilidade: {sensibilidade:.2f}\n"
             f"Especificidade: {especificidade:.2f}"
         )
+        fim = time.time()
+        print("Tempo do XgBoost total:",fim - inicio)
         self.trabalho_finalizado.emit(resultado_mensagem)
         self.confusao_pronta.emit(matriz_confusao)
 
@@ -1058,6 +1064,7 @@ def iteracao_anterior(event, index_atual, ax, matriz_confusaoList):
 
 
 def test_inception_cross_val(X, Y):
+    
     X = resize_all_images(X) 
     print(X.shape)
     pacientes_indices = np.arange(55)
@@ -1075,20 +1082,51 @@ def test_inception_cross_val(X, Y):
 
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
+        # #
+        # if i > 4: break
+        # # Criar um novo modelo em cada iteração
+        # input_tensor = Input(shape=(76, 76, 3))
+        # base_modelo = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
+        # x = base_modelo.output
+        # x = GlobalAveragePooling2D()(x)
+        # x = Dense(1, activation='sigmoid')(x)
+        # model = Model(inputs=base_modelo.input, outputs=x)
+        #
         model = load_model(f"./saved_models/model_iteration_{i}.h5")
+
+        
 
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
         X_train, X_test = X[train_idx], X[test_idx]
         Y_train, Y_test = Y[train_idx], Y[test_idx]
 
+        #
+        # train_datagen = ImageDataGenerator(preprocessing_function=None)
+        # test_datagen = ImageDataGenerator(preprocessing_function=None)
+        # train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
+        # test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
+        #
         with tf.device('/GPU:0'):
+            # model.fit(train_generator, epochs=5, verbose=1)
             y_pred = model.predict(X_test)
 
             y_pred_class = (y_pred > 0.5).astype(int)  # Converte probabilidades para 0 ou 1
 
             all_y_true.extend(Y_test)
             all_y_pred.extend(y_pred_class)  
+           
+        #-----------------------------------------------------
+        # acuracia = model.evaluate(test_generator, verbose=0)[1]
+        # acuracias.append(acuracia)
+        # print(f"Iteração concluída. Acurácia: {acuracia:.2f}")
+        # # Salvando o modelo após o treinamento
+        # salvar_modelo_path = os.path.join(save_dir, f"model_iteration_{i}.h5")
+        # model.save(salvar_modelo_path)
+        # print(f"Modelo salvo em: {salvar_modelo_path}")
+        # precisao_media = np.mean(acuracias)
+        # std_acuracias = np.std(acuracias)
+        #--------------------------------------------------------
 
         # Calcular a matriz de confusão
         matriz_confusao = confusion_matrix(all_y_true, all_y_pred, labels=[0, 1])
