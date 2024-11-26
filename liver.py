@@ -936,7 +936,7 @@ class ValidationWorker(QThread):
         self.Y = Y
 
     def run(self):
-        model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+        model = xgb.XGBClassifier(use_label_encoder=False)
         pacientes_indices = np.arange(55)
         grupos = np.repeat(pacientes_indices, 10)
         logo = LeaveOneGroupOut()
@@ -1009,16 +1009,6 @@ def test_inception_cross_val(X, Y):
     grupos = np.repeat(pacientes_indices, 10)
     logo = LeaveOneGroupOut()
 
-    input_tensor = Input(shape=(76, 76, 3))
-    base_model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dense(1, activation='sigmoid')(x)
-
-    model = Model(inputs=base_model.input, outputs=x)
-    
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
     accuracies = []
 
     # Diretório para salvar os modelos
@@ -1028,6 +1018,17 @@ def test_inception_cross_val(X, Y):
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
 
+        # Criar um novo modelo em cada iteração
+        input_tensor = Input(shape=(76, 76, 3))
+        base_model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
+        x = base_model.output
+        x = GlobalAveragePooling2D()(x)
+        x = Dense(1, activation='sigmoid')(x)
+
+        model = Model(inputs=base_model.input, outputs=x)
+
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
         X_train, X_test = X[train_idx], X[test_idx]
         Y_train, Y_test = Y[train_idx], Y[test_idx]
 
@@ -1036,7 +1037,7 @@ def test_inception_cross_val(X, Y):
 
         train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
         test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
-    
+
         with tf.device('/GPU:0'):  # Define explicitamente o uso da GPU
             model.fit(train_generator, epochs=5, verbose=1)
 
@@ -1068,7 +1069,7 @@ if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
     X, Y = preparate_image_rois("./og.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    # test_inception_cross_val(X, Y)
+    test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
