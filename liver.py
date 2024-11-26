@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPix
 from PyQt5.QtWidgets import QProgressBar, QPushButton,QDialog
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize,QThread
+from matplotlib.widgets import Button
 import scipy.io
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -23,6 +24,7 @@ import xgboost as xgb
 from sklearn.model_selection import LeaveOneGroupOut,  cross_val_score
 from sklearn.metrics import confusion_matrix
 from tensorflow import keras
+from keras.models import Model
 from keras.applications.inception_v3 import InceptionV3
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from keras.layers import GlobalAveragePooling2D, Dense, Input
@@ -36,25 +38,25 @@ import os
 class ProcessadorDeImagens(QMainWindow):
     def __init__(self, imagens=None):
         super().__init__()
-        self.visualizador_imagem = ImageViewer()
+        self.visualizador_imagem = VisualizarImagem()
         self.toolbar_imagens = ToolBarImages(imagens)
         self.menubar = MenuBar()
         self.progress_window = None  # Janela de progresso inicializada como None
 
-        # Inicializar o MomentHu com referências ao visualizador e histograma
-        self.momentHu = MomentHu(self.visualizador_imagem)  # Passar apenas visualizador_imagem
+
+        self.momentHu = MomentHu(self.visualizador_imagem) 
 
 
         self.addToolBar(Qt.LeftToolBarArea, self.toolbar_imagens)
 
-        self.visualizador_imagem.cropped.connect(self.toolbar_imagens.create_image_from_cropped)  # Comunicação ImageViewer -> ToolBarImage
-        self.toolbar_imagens.display.connect(self.visualizador_imagem.display_image)  # Comunicação ToolBarImage -> ImageViewer
+        self.visualizador_imagem.cropped.connect(self.toolbar_imagens.create_image_from_cropped)  # Comunicação VisualizarImagem -> ToolBarImage
+        self.toolbar_imagens.display.connect(self.visualizador_imagem.exibir_Imagem)  # Comunicação ToolBarImage -> VisualizarImagem
 
-        self.menubar.add_image.connect(self.toolbar_imagens.abrirImagem)  # Comunicação ImageViewer -> ToolBarImages
+        self.menubar.add_image.connect(self.toolbar_imagens.abrirImagem)  # Comunicação VisualizarImagem -> ToolBarImages
         self.menubar.crop_signal.connect(self.abrir_janela_crop)  # Comunicação MenuBar -> QMainWindow
         self.menubar.glcm_signal.connect(self.calcular_coocorenciaRadiais)
         self.menubar.histograma_signal.connect(self.mostrar_histograma)
-        self.menubar.momento_Hu_signal.connect(self.exibir_momento_hu)  # Conectar o sinal ao método que irá definir o histograma
+        self.menubar.momento_Hu_signal.connect(self.exibir_momento_hu)
         self.menubar.save_signal.connect(self.toolbar_imagens.save_all_crops)
 
         self.menubar.Xgboost_signal.connect(self.mostrar_progress_window)
@@ -119,8 +121,8 @@ class ProcessadorDeImagens(QMainWindow):
             glcm = graycomatrix(self.imagem, distances=[distancia], angles=[angulo], normed=True)
             glcm_homogeneidade = graycoprops(glcm, 'homogeneity')[0, 0]
             glcm_normed2D = glcm[:, :, 0, 0]
-            glcm_flattened = glcm_normed2D.ravel()
-            glcm_entropia = entropy(glcm_flattened, base=2)
+            glcm_achatada = glcm_normed2D.ravel()
+            glcm_entropia = entropy(glcm_achatada, base=2)
 
             ax = self.axs.flatten()[a_idx]
             #ax.imshow(glcm[:, :, 0, 0], cmap='coolwarm')
@@ -208,22 +210,22 @@ class MomentHu(QWidget):
     
 class CropWindow(QWidget):
 
-    def __init__(self, organ_images):
+    def __init__(self, imagem_orgaos):
         super().__init__()
         self.view = QGraphicsView()
         self.scene = QGraphicsScene(self.view)
         self.view.setScene(self.scene)
         self.hi = 0
-        self.initUI(organ_images)
+        self.initUI(imagem_orgaos)
 
-    def initUI(self, organ_images):
+    def initUI(self, imagem_orgaos):
         self.setWindowTitle("Recorte de Imagem")
         main_layout = QVBoxLayout()  # Layout principal
 
         # Layout horizontal para as imagens
         images_layout = QHBoxLayout()
 
-        for organ, data in organ_images.items():
+        for organ, data in imagem_orgaos.items():
             pixmap = data["pixmap"]
             coords = data["coords"]
 
@@ -232,24 +234,24 @@ class CropWindow(QWidget):
             self.scene.addItem(pixmap_item)
 
             # Layout para cada imagem
-            image_layout = QVBoxLayout()
-            image_label = QLabel(organ)
-            image_label.setAlignment(Qt.AlignCenter)
-            image_layout.addWidget(image_label)
+            imagem_layout = QVBoxLayout()
+            imagem_label = QLabel(organ)
+            imagem_label.setAlignment(Qt.AlignCenter)
+            imagem_layout.addWidget(imagem_label)
 
             pixmap_view = QGraphicsView()
             pixmap_scene = QGraphicsScene()
             pixmap_scene.addItem(pixmap_item)
             pixmap_view.setScene(pixmap_scene)
 
-            image_layout.addWidget(pixmap_view)
-            images_layout.addLayout(image_layout)
+            imagem_layout.addWidget(pixmap_view)
+            images_layout.addLayout(imagem_layout)
 
         # Adicionar layout das imagens ao layout principal
         main_layout.addLayout(images_layout)
 
         # Fígado com Hi
-        self.new_liver_pix_map = self.calculate_hi(organ_images)
+        self.new_liver_pix_map = self.calculoHi(imagem_orgaos)
         self.new_liver_numpy = self.qpixmap_to_numpy(self.new_liver_pix_map)
         self.momentosHu = self.get_moment_hu()
         self.homogeneity, self.entropy = self.calculate_homogeneity_entropy()
@@ -330,32 +332,32 @@ class CropWindow(QWidget):
         else:
             print("Erro:Nao foi possivel salvar o Hu junto com a ROI")
 
-    def calculate_hi(self, organ_images):
-        liver = self.calculate_avg(organ_images["fígado"]["pixmap"])
-        kidney = self.calculate_avg(organ_images["rim"]["pixmap"])
+    def calculoHi(self, imagem_orgaos):
+        figado = self.calculate_avg(imagem_orgaos["fígado"]["pixmap"])
+        rim = self.calculate_avg(imagem_orgaos["rim"]["pixmap"])
 
-        self.hi = liver / kidney
-        image = organ_images["fígado"]["pixmap"].toImage()
-        new_image = QImage(image.size(), QImage.Format_Grayscale8)
+        self.hi = figado / rim
+        image = imagem_orgaos["fígado"]["pixmap"].toImage()
+        nova_Imagem = QImage(image.size(), QImage.Format_Grayscale8)
 
         for x in range(image.width()):
             for y in range(image.height()):
-                pixel_value = image.pixelColor(x, y).red()
-                new_value = min(int(pixel_value * self.hi), 255) # Tem que colocar esse limite, porque é 8bits de grayscale
-                new_image.setPixel(x, y, QColor(new_value, new_value, new_value).rgba())
-        return QPixmap.fromImage(new_image)
+                valor_Pixel = image.pixelColor(x, y).red()
+                novo_Valor = min(int(valor_Pixel * self.hi), 255) # Tem que colocar esse limite, porque é 8bits de grayscale
+                nova_Imagem.setPixel(x, y, QColor(novo_Valor, novo_Valor, novo_Valor).rgba())
+        return QPixmap.fromImage(nova_Imagem)
 
     def calculate_avg(self, pixmap):
-        image = pixmap.toImage()
-        num_pixels = image.width() * image.height()
-        sum_of_pixels = 0
+        imagem = pixmap.toImage()
+        numero_Pixels = imagem.width() * imagem.height()
+        somatorio_Pixels = 0
 
-        for x in range(image.width()):
-            for y in range(image.height()):
-                pixel_value = image.pixelColor(x, y).red()
-                sum_of_pixels += pixel_value
+        for x in range(imagem.width()):
+            for y in range(imagem.height()):
+                valor_Pixel = imagem.pixelColor(x, y).red()
+                somatorio_Pixels += valor_Pixel
 
-        return sum_of_pixels / num_pixels
+        return somatorio_Pixels / numero_Pixels
 
     def get_new_liver_pix_map(self):
         return self.new_liver_pix_map
@@ -377,7 +379,7 @@ class MenuBar(QMenuBar):
     def __init__(self):
         super().__init__()
         open_file = QAction('Abrir Imagem', self)
-        open_file.triggered.connect(self.open_image)
+        open_file.triggered.connect(self.abrir_imagem)
         file_menu = self.addMenu('Arquivos')
         file_menu.addAction(open_file)
 
@@ -420,16 +422,16 @@ class MenuBar(QMenuBar):
         Inception_action.triggered.connect(self.Inception_signal.emit)
         Inception_menu.addAction(Inception_action)
 
-    def open_image(self, file_name):
-        options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getOpenFileName(self, "Abrir arquivo de Imagem", "", "Images (*.png *.jpg *.bmp *.mat);;All Files (*)", options=options)
+    def abrir_imagem(self, file_name):
+        opcoes = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(self, "Abrir arquivo de Imagem", "", "Images (*.png *.jpg *.bmp *.mat);;All Files (*)", options=opcoes)
         if file_name:
             if file_name.endswith('.mat'):
                 pass
             else:
-                image = cv2.imread(file_name, cv2.IMREAD_GRAYSCALE)
-                height, width = image.shape
-                q_img = QImage(image.data, width, height, QImage.Format_Grayscale8)
+                imagem = cv2.imread(file_name, cv2.IMREAD_GRAYSCALE)
+                altura, largura = imagem.shape
+                q_img = QImage(imagem.data, largura, altura, QImage.Format_Grayscale8)
                 pixmap = QPixmap.fromImage(q_img)
                 self.add_image.emit(file_name, pixmap)
 
@@ -444,12 +446,12 @@ class Histogram(QWidget):
 
         self.ax = self.canvas.figure.subplots()
 
-        self.compute_histogram(pixmap)
+        self.calcular_Histograma(pixmap)
 
-    def compute_histogram(self, pixmap):
-        image = self.qpixmap_to_numpy(pixmap)
+    def calcular_Histograma(self, pixmap):
+        imagem = self.qpixmap_to_numpy(pixmap)
 
-        hist = cv2.calcHist([image], [0], None, [256], [0,255])
+        hist = cv2.calcHist([imagem], [0], None, [256], [0,255])
 
         self.ax.plot(hist, color='black')
 
@@ -474,7 +476,7 @@ class Histogram(QWidget):
 
 
  #Imagem Viewer ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-class ImageViewer(QGraphicsView):
+class VisualizarImagem(QGraphicsView):
     cropped = pyqtSignal(QPixmap, int, int, int, int)
 
     def __init__(self):
@@ -487,7 +489,7 @@ class ImageViewer(QGraphicsView):
 
         # Variáveis de controle de interação com rubber band
         # ---------------------------------------------------------- #
-
+        
         self.zoom_factor = 1.15
         self.is_dragging = False
         self.enable_cropping = False
@@ -507,8 +509,8 @@ class ImageViewer(QGraphicsView):
         self.pacient_n = 0
         self.image_n = 0
 
-    def display_image(self, pixmap, name):
-        self.pacient_n, self.image_n = map(str, name.split("-"))
+    def exibir_Imagem(self, pixmap, nome):
+        self.pacient_n, self.image_n = map(str, nome.split("-"))
         self.enable_cropping = True
         self.scene.clear()
         self.resetTransform()
@@ -653,7 +655,7 @@ class ToolBarImages(QToolBar):
         self.addWidget(self.folder_hierarchy)
 
 
-        self.folder_hierarchy.itemClicked.connect(self.display_image)
+        self.folder_hierarchy.itemClicked.connect(self.exibir_Imagem)
         self.folder_hierarchy.setHeaderHidden(True)
 
         self.imagem_adicionadas = QTreeWidgetItem(self.folder_hierarchy)
@@ -672,10 +674,10 @@ class ToolBarImages(QToolBar):
             patient_node = QTreeWidgetItem(self.folder_hierarchy)
             patient_node.setText(0, f"Paciente {id_pacient}")
             for id_image,image in enumerate(patient):
-                self.open_image_patients(image, id_pacient, id_image, patient_node)
+                self.abrir_imagem_patients(image, id_pacient, id_image, patient_node)
 
     
-    def display_image(self, item, column):
+    def exibir_Imagem(self, item, column):
         # Deixar Nós raiz inclicáveis (nós com header de paciente)
         if item.parent() is None:
             return
@@ -688,7 +690,7 @@ class ToolBarImages(QToolBar):
         self.has_selected_cortex = False
         self.has_selected_kidney = False
 
-    def open_image_patients(self, image, id_pacient, id_image, father):
+    def abrir_imagem_patients(self, image, id_pacient, id_image, father):
         # Inicialização dos nós Folhas (Imagens dos pacientes)
         child_item = QTreeWidgetItem(father)
         child_item.setText(0, f"Imagem {id_image}")
@@ -700,11 +702,11 @@ class ToolBarImages(QToolBar):
         pixmap = QPixmap.fromImage(q_img)
         self.pixmap_dictionary[f"{id_pacient}-{id_image}"] = pixmap
 
-    def create_image_from_cropped(self, crop_qpixmap, pacient_n, image_n, coord_x, coord_y):
-        if pacient_n != self.pacient_id and image_n != self.image_id:
+    def create_image_from_cropped(self, crop_qpixmap, paciente_n, imagem_n, coord_x, coord_y):
+        if paciente_n != self.pacient_id and imagem_n != self.image_id:
             self.organ_images = {}
-            self.pacient_id = pacient_n
-            self.image_id = image_n
+            self.pacient_id = paciente_n
+            self.image_id = imagem_n
 
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Question)
@@ -745,7 +747,8 @@ class ToolBarImages(QToolBar):
             coords_liver = self.organ_images["fígado"]["coords"]
             coords_kidney = self.organ_images["rim"]["coords"]
             # new_liver_pix_map nao é passado por emit pois self.save_img precisa de todos esses parametros para funcionar
-            self.save_img(self.crop_window.get_new_liver_pix_map(),f"ROI_{pacient_n}_{image_n}", coords_liver, coords_kidney, pacient_n, self.crop_window.get_hi(), self.crop_window.get_moment_hu(), self.crop_window.calculate_homogeneity_entropy())
+            self.save_img(self.crop_window.get_new_liver_pix_map(),f"ROI_{paciente_n}_{imagem_n}", coords_liver, coords_kidney, paciente_n, self.crop_window.get_hi(), 
+                          self.crop_window.get_moment_hu(), self.crop_window.calculate_homogeneity_entropy())
             # nao precisa das ROIs do rim
 
             # self.save_img(self.organ_images["rim"]["pixmap"], f"RIM_{pacient_n}_{image_n}", coord_x, coord_y, pacient_n)
@@ -758,22 +761,22 @@ class ToolBarImages(QToolBar):
         child_item.setText(2, filename)
         self.pixmap_dictionary[f"A-{filename}"] = crop_image
 
-    def save_img(self, crop_qpixmap, file_name, coords_liver, coords_kidney, pacient_n, hi, hu, homogeneity_entropy):
-        homogeneity, entropy = homogeneity_entropy
+    def save_img(self, crop_qpixmap, file_name, coords_liver, coords_kidney, paciente_n, hi, hu, homogeneidade_entropia):
+        homogeneidade, entropia = homogeneidade_entropia
         child_item = QTreeWidgetItem(self.cropped_imgs_node)
         child_item.setText(0, file_name)
         child_item.setText(1, f"C")
         child_item.setText(2, str(self.crop_id))
         child_item.setText(3, f"{coords_liver}")
         child_item.setText(4, f"{coords_kidney}")
-        if pacient_n <= 16:
+        if paciente_n <= 16:
             child_item.setText(5, "saudável")
         else:
             child_item.setText(5, "esteatose")
         child_item.setText(6, f"{hi}")
         child_item.setText(7, f"{hu}")
-        child_item.setText(8, f"{homogeneity}")
-        child_item.setText(9, f"{entropy}")
+        child_item.setText(8, f"{homogeneidade}")
+        child_item.setText(9, f"{entropia}")
 
 
         self.pixmap_dictionary[f"C-{self.crop_id}"] = crop_qpixmap
@@ -865,7 +868,7 @@ def preparate_image_rois(path, images_liver):
             Y.append(label)
     return np.array(X), np.array(Y)
 
-class ProgressComponent(QWidget):
+class ComponenteProgress(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
@@ -874,47 +877,47 @@ class ProgressComponent(QWidget):
         self.layout.addWidget(self.confusion_canvas)
         self.confusion_ax = self.confusion_canvas.figure.add_subplot(111)
 
-        self.progress_bar = QProgressBar(self)
-        self.progress_bar.setValue(0)
-        self.layout.addWidget(self.progress_bar)
+        self.barra_progresso = QProgressBar(self)
+        self.barra_progresso.setValue(0)
+        self.layout.addWidget(self.barra_progresso)
 
-        self.start_button = QPushButton("Iniciar Validação Cruzada", self)
-        self.start_button.clicked.connect(self.start_validation)
-        self.layout.addWidget(self.start_button)
+        self.botaoStart = QPushButton("Iniciar Validação Cruzada", self)
+        self.botaoStart.clicked.connect(self.comecar_validacao)
+        self.layout.addWidget(self.botaoStart)
 
         self.worker = None
 
-    def start_validation(self):
-        self.start_button.setEnabled(False)
+    def comecar_validacao(self):
+        self.botaoStart.setEnabled(False)
 
         X, Y = preparate_descriptors("./og.csv")
 
-        self.worker = ValidationWorker(X, Y)
-        self.worker.progress_updated.connect(self.update_progress_bar)
-        self.worker.work_finished.connect(self.on_work_done)
-        self.worker.confusion_ready.connect(self.display_confusion_matrix)
+        self.worker = Xgboost(X, Y)
+        self.worker.progresso_atualizado.connect(self.atualizar_barra_progresso)
+        self.worker.trabalho_finalizado.connect(self.trabalho_concluido)
+        self.worker.confusao_pronta.connect(self.mostrar_matriz_confusao)
         self.worker.start()
 
-    def update_progress_bar(self, value):
-        self.progress_bar.setValue(value)
+    def atualizar_barra_progresso(self, value):
+        self.barra_progresso.setValue(value)
 
-    def on_work_done(self, message):
-        self.start_button.setEnabled(True)
-        self.progress_bar.setValue(100)
-        print(message)
+    def trabalho_concluido(self, messagem):
+        self.botaoStart.setEnabled(True)
+        self.barra_progresso.setValue(100)
+        print(messagem)
 
 
-    def display_confusion_matrix(self, conf_matrix):
+    def mostrar_matriz_confusao(self, matriz_confusao):
         self.confusion_ax.clear()
 
-        TN, FP, FN, TP = conf_matrix.ravel()
+        TN, FP, FN, TP = matriz_confusao.ravel()
 
         annotations = [
             [f"{TN}\nVN", f"{FP}\nFP"],
             [f"{FN}\nFN", f"{TP}\nVP"]
         ]
 
-        sns.heatmap(conf_matrix, annot=annotations, fmt="s", cmap="Greens", ax=self.confusion_ax,
+        sns.heatmap(matriz_confusao, annot=annotations, fmt="s", cmap="Greens", ax=self.confusion_ax,
                     cbar=False, square=True, linewidths=1, linecolor='black')
 
         self.confusion_ax.set_title("Matriz de Confusão")
@@ -934,6 +937,7 @@ class ProgressWindow(QDialog):
         
         screen = self.screen()
         rect = screen.availableGeometry()
+
         x = (rect.width() - self.width()) // 2
         y = (rect.height() - self.height()) // 2
         self.move(x, y)
@@ -942,15 +946,15 @@ class ProgressWindow(QDialog):
 
         self.layout = QVBoxLayout(self)
 
-        self.progress_component = ProgressComponent(self)
-        self.layout.addWidget(self.progress_component)
+        self.progresso_componente = ComponenteProgress(self)
+        self.layout.addWidget(self.progresso_componente)
 
 
 
-class ValidationWorker(QThread):
-    progress_updated = pyqtSignal(int)
-    work_finished = pyqtSignal(str)
-    confusion_ready = pyqtSignal(np.ndarray)
+class Xgboost(QThread):
+    progresso_atualizado = pyqtSignal(int)
+    trabalho_finalizado = pyqtSignal(str)
+    confusao_pronta = pyqtSignal(np.ndarray)
 
     def __init__(self, X, Y, parent=None):
         super().__init__(parent)
@@ -966,7 +970,7 @@ class ValidationWorker(QThread):
         scores = []
         all_y_true = []
         all_y_pred = []
-        incorrect_indices = []
+        indices_incorretos = []
         total_splits = len(list(logo.split(self.X, self.Y, grupos)))
         current_split = 0
 
@@ -979,41 +983,42 @@ class ValidationWorker(QThread):
             all_y_true.extend(Y_test)
             all_y_pred.extend(y_pred)
 
-            incorrect = test_index[Y_test != y_pred]  # Indices de previsões incorretas
-            incorrect_indices.extend(incorrect)
+            incorreto = test_index[Y_test != y_pred]  # Indices de previsões incorretas
+            indices_incorretos.extend(incorreto)
             
-            accuracy = model.score(X_test, Y_test)
-            scores.append(accuracy)
+            acuracia = model.score(X_test, Y_test)
+            scores.append(acuracia)
             
-            print(test_index," ",accuracy)
+            print(test_index," ",acuracia)
             
             # Atualiza progresso
             current_split += 1
             progress = int((current_split / total_splits) * 100)
-            self.progress_updated.emit(progress)
+            self.progresso_atualizado.emit(progress)
 
-        print(incorrect_indices)
-        print(len(incorrect_indices))
-        mean_accuracy = np.mean(scores)
-        std_accuracy = np.std(scores)
-        conf_matrix = confusion_matrix(all_y_true, all_y_pred)
-        TN, FP, FN, TP = conf_matrix.ravel()
+        print(indices_incorretos)
+        print(len(indices_incorretos))
+        acuracia_media = np.mean(scores)
+        std_acuracia = np.std(scores)
+        matriz_confusao = confusion_matrix(all_y_true, all_y_pred)
+        TN, FP, FN, TP = matriz_confusao.ravel()
 
+        
         acuracia = (TP + TN) / (TP + TN + FP + FN)
         sensibilidade = TP / (TP + FN)
         especificidade = TN / (TN + FP)
-        result_message = (
-            f"Acurácia média (cross-validation): {mean_accuracy:.2f}\n"
-            f"Desvio padrão (cross-validation): {std_accuracy:.2f}\n"
+        resultado_mensagem = (
+            f"Acurácia média (cross-validation): {acuracia_media:.2f}\n"
+            f"Desvio padrão (cross-validation): {std_acuracia:.2f}\n"
             f"Métricas da matriz de confusão:\n"
             f"Acurácia: {acuracia:.2f}\n"
             f"Sensibilidade: {sensibilidade:.2f}\n"
             f"Especificidade: {especificidade:.2f}"
         )
-        self.work_finished.emit(result_message)
+        self.trabalho_finalizado.emit(resultado_mensagem)
         # Calcular matriz de confusão
        #conf_matrix = confusion_matrix(all_y_true, all_y_pred)
-        self.confusion_ready.emit(conf_matrix)
+        self.confusao_pronta.emit(matriz_confusao)
 
 
 
@@ -1024,6 +1029,129 @@ def resize_all_images(X):
     X = np.stack((X,) * 3, axis=-1)
     X = np.array([resize(img, (76, 76)).numpy() for img in X])
     return X
+
+
+def test_inception_cross_val(X, Y):
+    X = resize_all_images(X)
+    print(X.shape)
+    pacientes_indices = np.arange(55)
+    grupos = np.repeat(pacientes_indices, 10)
+    logo = LeaveOneGroupOut()
+
+    acuracias = []
+    all_y_true = []
+    all_y_pred = []
+    # Diretório para salvar os modelos
+    save_dir = "saved_models"
+    os.makedirs(save_dir, exist_ok=True)
+    
+    confusao_matrices = []  # Lista para armazenar as matrizes de confusão
+
+    for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
+        print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
+
+        if i > 1: break
+        # Criar um novo modelo em cada iteração
+        input_tensor = Input(shape=(76, 76, 3))
+        base_modelo = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
+        x = base_modelo.output
+        x = GlobalAveragePooling2D()(x)
+        x = Dense(1, activation='sigmoid')(x)
+
+        model = Model(inputs=base_modelo.input, outputs=x)
+
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+        X_train, X_test = X[train_idx], X[test_idx]
+        Y_train, Y_test = Y[train_idx], Y[test_idx]
+
+        train_datagen = ImageDataGenerator(preprocessing_function=None)
+        test_datagen = ImageDataGenerator(preprocessing_function=None)
+
+        train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
+        test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
+
+        with tf.device('/GPU:0'):  # Define explicitamente o uso da GPU
+            model.fit(train_generator, epochs=5, verbose=1)
+            y_pred = model.predict(X_test)
+
+            # Converter y_pred de probabilidades para 0 ou 1
+            y_pred_class = (y_pred > 0.5).astype(int)  # Converte probabilidades para 0 ou 1
+
+            all_y_true.extend(Y_test)
+            all_y_pred.extend(y_pred_class)  # Usar y_pred_class (rótulos binários)
+
+        acuracia = model.evaluate(test_generator, verbose=0)[1]
+        acuracias.append(acuracia)
+
+        print(f"Iteração concluída. Acurácia: {acuracia:.2f}")
+
+        # Salvar o modelo após o treinamento
+        salvar_modelo_path = os.path.join(save_dir, f"model_iteration_{i}.h5")
+        model.save(salvar_modelo_path)
+        print(f"Modelo salvo em: {salvar_modelo_path}")
+
+        precisao_media = np.mean(acuracias)
+        std_acuracias = np.std(acuracias)
+
+        # Calcular a matriz de confusão
+        matriz_confusao = confusion_matrix(all_y_true, all_y_pred)
+        confusao_matrices.append(matriz_confusao)  # Salvar a matriz de confusão
+
+        TN, FP, FN, TP = matriz_confusao.ravel()
+
+        acuracia = (TP + TN) / (TP + TN + FP + FN)
+        sensibilidade = TP / (TP + FN)
+        especificidade = TN / (TN + FP)
+        resultado_mensagem = (
+            f"Acurácia média (cross-validation): {precisao_media:.2f}\n"
+            f"Desvio padrão (cross-validation): {std_acuracias:.2f}\n"
+            f"Métricas da matriz de confusão:\n"
+            f"Acurácia: {acuracia:.2f}\n"
+            f"Sensibilidade: {sensibilidade:.2f}\n"
+            f"Especificidade: {especificidade:.2f}"
+        )
+        print(resultado_mensagem)
+
+    # Exibição interativa das matrizes de confusão
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    current_idx = [0]  # Variável para controlar qual iteração estamos visualizando
+
+    def update(idx):
+        ax.clear()  # Limpa o eixo antes de plotar a nova matriz
+        sns.heatmap(confusao_matrices[idx], annot=True, fmt="d", cmap="Blues", 
+                    xticklabels=["Predito Negativo", "Predito Positivo"], 
+                    yticklabels=["Real Negativo", "Real Positivo"], ax=ax,cbar=False)
+        ax.set_title(f'Matriz de Confusão - Validação Cruzada {idx+1}')
+        ax.set_ylabel('Real')
+        ax.set_xlabel('Predito')
+        plt.draw()
+
+    def next_iteration(event):
+        current_idx[0] = min(current_idx[0] + 1, len(confusao_matrices) - 1)
+        update(current_idx[0])
+
+    def prev_iteration(event):
+        current_idx[0] = max(current_idx[0] - 1, 0)
+        update(current_idx[0])
+
+    # Criar botões de navegação apenas uma vez
+    axprev = plt.axes([0.1, 0.01, 0.1, 0.05])
+    axnext = plt.axes([0.8, 0.01, 0.1, 0.05])
+    btnprev = Button(axprev, 'Anterior')
+    btnnext = Button(axnext, 'Próxima')
+
+    btnprev.on_clicked(prev_iteration)
+    btnnext.on_clicked(next_iteration)
+
+    update(0)  # Exibir a primeira matriz de confusão
+    plt.subplots_adjust(bottom=0.15)
+    plt.show()
+
+    print(f"Acurácia média (cross-validation): {np.mean(acuracias):.2f}")
+    print(f"Desvio padrão (cross-validation): {np.std(acuracias):.2f}")
+
 
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1041,7 +1169,7 @@ if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
     X, Y = preparate_image_rois("./og.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    # test_inception_cross_val(X, Y)
+    test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
