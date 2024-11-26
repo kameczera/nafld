@@ -43,9 +43,8 @@ class ProcessadorDeImagens(QMainWindow):
         self.visualizador_imagem = VisualizarImagem()
         self.toolbar_imagens = ToolBarImages(imagens)
         self.menubar = MenuBar()
-        self.progress_window = None  # Janela de progresso inicializada como None
+        self.progress_window = None  
         
-
         self.momentHu = MomentHu(self.visualizador_imagem) 
 
 
@@ -93,9 +92,8 @@ class ProcessadorDeImagens(QMainWindow):
         
 
     def mostrar_progress_window(self):
-        # Cria uma instância de ProgressWindow sem sobrescrever a janela principal
         self.progress_window = ProgressWindow(self)
-        self.progress_window.show()  # Exibe a janela
+        self.progress_window.show()  
 
 
 
@@ -191,7 +189,7 @@ class MomentHu(QWidget):
 
     def momentos_invariantes_Hu(self):
         pixmap_atual = self.visualizador_imagem.get_pixmap()
-        imagem = self.qpixmap_to_numpy(pixmap_atual)  # Converter QPixmap para numpy
+        imagem = self.qpixmap_to_numpy(pixmap_atual) 
 
         if imagem is not None:
 
@@ -201,7 +199,7 @@ class MomentHu(QWidget):
 
             texto = "\nMomentos de Hu:\n"
             for i, value in enumerate(hu_moments):
-                texto += f'Hu[{i + 1}]: {value:.4e}\n'  # Usando notação científica
+                texto += f'Hu[{i + 1}]: {value:.4e}\n'
 
             self.text_edit.setPlainText(texto)
         else:
@@ -230,7 +228,7 @@ class CropWindow(QWidget):
 
     def initUI(self, imagem_orgaos):
         self.setWindowTitle("Recorte de Imagem")
-        main_layout = QVBoxLayout()  # Layout principal
+        main_layout = QVBoxLayout()  
 
         # Layout horizontal para as imagens
         images_layout = QHBoxLayout()
@@ -239,7 +237,7 @@ class CropWindow(QWidget):
             pixmap = data["pixmap"]
             coords = data["coords"]
 
-            # Item do QGraphics
+
             pixmap_item = QGraphicsPixmapItem(pixmap)
             self.scene.addItem(pixmap_item)
 
@@ -257,7 +255,6 @@ class CropWindow(QWidget):
             imagem_layout.addWidget(pixmap_view)
             images_layout.addLayout(imagem_layout)
 
-        # Adicionar layout das imagens ao layout principal
         main_layout.addLayout(images_layout)
 
         # Fígado com Hi
@@ -405,13 +402,13 @@ class MenuBar(QMenuBar):
         # Menu GLCM Descritores
         glcm_menu = self.addMenu('GLCM Descritores')
         glcm_action = QAction('Mostrar GLCM', self)
-        glcm_action.triggered.connect(self.glcm_signal.emit)  # Emitindo sinal para GLCM
+        glcm_action.triggered.connect(self.glcm_signal.emit)  
         glcm_menu.addAction(glcm_action)
 
         # Menu GLCM Descritores
         histograma_menu = self.addMenu('Histograma')
         histograma_action = QAction('Mostrar Histograma', self)
-        histograma_action.triggered.connect(self.histograma_signal.emit)  # Emitindo sinal para GLCM
+        histograma_action.triggered.connect(self.histograma_signal.emit) 
         histograma_menu.addAction(histograma_action)
 
         #Menu Momento de Hu
@@ -604,8 +601,7 @@ class VisualizarImagem(QGraphicsView):
         self.is_dragging = False
         self.is_translating = False
         self.is_resizing_rb = False
-        # else:
-        #     utility.MessageBox.show_alert("Selecao da ROI muito pequena.")
+
         if event.button() == Qt.RightButton:
 
             self.setCursor(Qt.ArrowCursor)
@@ -691,7 +687,7 @@ class ToolBarImages(QToolBar):
         # Deixar Nós raiz inclicáveis (nós com header de paciente)
         if item.parent() is None:
             return
-        # TODO: Nome dos nós folhas estranho. Mudar aqui
+
         print(item.text(1))
         print(item.text(2))
 
@@ -1001,7 +997,7 @@ class Xgboost(QThread):
             
             print(test_index," ",acuracia)
             
-            # Atualiza progresso
+
             current_split += 1
             progress = int((current_split / total_splits) * 100)
             self.progresso_atualizado.emit(progress)
@@ -1026,8 +1022,6 @@ class Xgboost(QThread):
             f"Especificidade: {especificidade:.2f}"
         )
         self.trabalho_finalizado.emit(resultado_mensagem)
-        # Calcular matriz de confusão
-       #conf_matrix = confusion_matrix(all_y_true, all_y_pred)
         self.confusao_pronta.emit(matriz_confusao)
 
 
@@ -1041,7 +1035,7 @@ def resize_all_images(X):
     return X
 
 def atualizarInceptionConfusao(idx, ax, matriz_confusaoList):
-    ax.clear()  # Limpa o eixo antes de plotar a nova matriz
+    ax.clear() 
     sns.heatmap(matriz_confusaoList[idx], annot=True, fmt="d", cmap="Blues",
                 xticklabels=["Predito Negativo", "Predito Positivo"],
                 yticklabels=["Real Negativo", "Real Positivo"], ax=ax, cbar=False)
@@ -1062,7 +1056,7 @@ def iteracao_anterior(event, index_atual, ax, matriz_confusaoList):
 
 
 def test_inception_cross_val(X, Y):
-    X = resize_all_images(X)  # Supondo que esta função redimensione as imagens adequadamente
+    X = resize_all_images(X) 
     print(X.shape)
     pacientes_indices = np.arange(55)
     grupos = np.repeat(pacientes_indices, 10)
@@ -1075,7 +1069,7 @@ def test_inception_cross_val(X, Y):
     save_dir = "saved_models"
     os.makedirs(save_dir, exist_ok=True)
     
-    matriz_confusaoList = []  # Lista para armazenar as matrizes de confusão
+    matriz_confusaoList = []  # Lista para armazenar as matrizes de confusão da Inception
 
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
@@ -1092,29 +1086,17 @@ def test_inception_cross_val(X, Y):
             y_pred_class = (y_pred > 0.5).astype(int)  # Converte probabilidades para 0 ou 1
 
             all_y_true.extend(Y_test)
-            all_y_pred.extend(y_pred_class)  # Usar y_pred_class (rótulos binários)
+            all_y_pred.extend(y_pred_class)  
 
         # Calcular a matriz de confusão
         matriz_confusao = confusion_matrix(all_y_true, all_y_pred, labels=[0, 1])
-        fig, ax = plt.subplots(figsize=(6, 5))
-        sns.heatmap(matriz_confusao, annot=True, fmt="d", cmap="Blues", 
-            xticklabels=["Predito Negativo", "Predito Positivo"],
-            yticklabels=["Real Negativo", "Real Positivo"], cbar=False, ax=ax)
-        ax.set_title(f'Matriz de Confusão - Validação Cruzada {i+1}')
-        ax.set_ylabel('Real')
-        ax.set_xlabel('Predito')
-
-
-        # Salvando a imagem
-        plt.savefig(f"./matrizes/matriz_confusao{i}.png")
-        plt.close()
         matriz_confusaoList.append(matriz_confusao)  # Salvar a matriz de confusão
 
         if matriz_confusao.shape == (2, 2):
             TN, FP, FN, TP = matriz_confusao.ravel()
         else:
             print(f"Matriz de confusão inesperada: {matriz_confusao}")
-            TN, FP, FN, TP = 0, 0, 0, 0  # Ou outra lógica para lidar com o caso
+            TN, FP, FN, TP = 0, 0, 0, 0  
 
         acuracia = (TP + TN) / (TP + TN + FP + FN)
         sensibilidade = TP / (TP + FN)
@@ -1125,12 +1107,17 @@ def test_inception_cross_val(X, Y):
             f"Sensibilidade: {sensibilidade:.2f}\n"
             f"Especificidade: {especificidade:.2f}"
         )
-    print(resultado_mensagem)
+        print(resultado_mensagem)
+
+    # Exibição interativa das matrizes de confusão
     fig, ax = plt.subplots(figsize=(6, 6))
-    index_atual = [0]
+    index_atual = [0]  # Controlador para navegação entre matrizes
     plt.subplots_adjust(bottom=0.15)
+
+    # Conectar os eventos de tecla para navegação entre as matrizes
     fig.canvas.mpl_connect('key_press_event', lambda event: proxima_iteracao(event, index_atual, ax, matriz_confusaoList) if event.key == 'right' else iteracao_anterior(event, index_atual, ax, matriz_confusaoList) if event.key == 'left' else None)
-    atualizarInceptionConfusao(0, ax, matriz_confusaoList)
+
+    atualizarInceptionConfusao(0, ax, matriz_confusaoList)  # Exibir a primeira matriz de confusão
     plt.show()
     print(f"Acurácia média (cross-validation): {np.mean(acuracias):.2f}")
     print(f"Desvio padrão (cross-validation): {np.std(acuracias):.2f}")
