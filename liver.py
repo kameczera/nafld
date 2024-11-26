@@ -972,7 +972,7 @@ class Xgboost(QThread):
         self.Y = Y
 
     def run(self):
-        model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+        model = xgb.XGBClassifier(use_label_encoder=False)
         pacientes_indices = np.arange(55)
         grupos = np.repeat(pacientes_indices, 10)
         logo = LeaveOneGroupOut()
