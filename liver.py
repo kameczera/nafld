@@ -7,10 +7,9 @@ from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
 import seaborn as sns
-import plotly.graph_objects as go
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
 from PyQt5.QtWidgets import QProgressBar, QPushButton,QDialog
-from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette
+from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette,QPen,QBrush
 from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QRect, QSize,QThread
 from matplotlib.widgets import Button
 import scipy.io
@@ -261,7 +260,7 @@ class CropWindow(QWidget):
         self.new_liver_pix_map = self.calculoHi(imagem_orgaos)
         self.new_liver_numpy = self.qpixmap_to_numpy(self.new_liver_pix_map)
         self.momentosHu = self.get_moment_hu()
-        self.homogeneity, self.entropy = self.calculate_homogeneity_entropy()
+        self.homogeneity, self.entropy = self.calcular_homogeneidade_entropia()
 
         # Obter a previsão
         prediction, probabilities = self.test_new_liver_pixmap()
@@ -314,7 +313,7 @@ class CropWindow(QWidget):
 
         return arr
 
-    def calculate_homogeneity_entropy(self):
+    def calcular_homogeneidade_entropia(self):
         distances = [1, 2, 4, 8]
         angles = [0, np.pi / 4, np.pi / 2, 3 * np.pi / 4]
         homogeneity_results = []
@@ -490,8 +489,7 @@ class VisualizarImagem(QGraphicsView):
         super().__init__()
         self.scene = QGraphicsScene(self)
         self.setDragMode(QGraphicsView.NoDrag)
-        self.rubber_band = QRubberBand(QRubberBand.Rectangle, self)
-     
+        self.rubber_band = QRubberBand(QRubberBand.Rectangle,self)
         
 
         # Variáveis de controle de interação com rubber band
@@ -524,6 +522,10 @@ class VisualizarImagem(QGraphicsView):
         self.pix_map = pixmap
         pixmap_item = QGraphicsPixmapItem(pixmap)
         self.scene.addItem(pixmap_item)
+
+        # Definindo a cor da borda do rubber band para verde
+        self.rubber_band.setStyleSheet("border: 2px solid green;")  # Borda verde
+
 
     def get_pixmap(self):
         return self.pix_map
@@ -680,7 +682,7 @@ class ToolBarImages(QToolBar):
             patient_node = QTreeWidgetItem(self.folder_hierarchy)
             patient_node.setText(0, f"Paciente {id_pacient}")
             for id_image,image in enumerate(patient):
-                self.abrir_imagem_patients(image, id_pacient, id_image, patient_node)
+                self.abrir_imagem_paciente(image, id_pacient, id_image, patient_node)
 
     
     def exibir_Imagem(self, item, column):
@@ -688,15 +690,14 @@ class ToolBarImages(QToolBar):
         if item.parent() is None:
             return
 
-        print(item.text(1))
-        print(item.text(2))
+
 
         self.display.emit(self.pixmap_dictionary[f"{item.text(1)}-{item.text(2)}"], f"{item.text(1)}-{item.text(2)}")
         self.has_selected_liver = False
         self.has_selected_cortex = False
         self.has_selected_kidney = False
 
-    def abrir_imagem_patients(self, image, id_pacient, id_image, father):
+    def abrir_imagem_paciente(self, image, id_pacient, id_image, father):
         # Inicialização dos nós Folhas (Imagens dos pacientes)
         child_item = QTreeWidgetItem(father)
         child_item.setText(0, f"Imagem {id_image}")
@@ -754,7 +755,7 @@ class ToolBarImages(QToolBar):
             coords_kidney = self.organ_images["rim"]["coords"]
             # new_liver_pix_map nao é passado por emit pois self.save_img precisa de todos esses parametros para funcionar
             self.save_img(self.crop_window.get_new_liver_pix_map(),f"ROI_{paciente_n}_{imagem_n}", coords_liver, coords_kidney, paciente_n, self.crop_window.get_hi(), 
-                          self.crop_window.get_moment_hu(), self.crop_window.calculate_homogeneity_entropy())
+                          self.crop_window.get_moment_hu(), self.crop_window.calcular_homogeneidade_entropia())
             # nao precisa das ROIs do rim
 
             # self.save_img(self.organ_images["rim"]["pixmap"], f"RIM_{pacient_n}_{image_n}", coord_x, coord_y, pacient_n)
@@ -999,8 +1000,8 @@ class Xgboost(QThread):
             
 
             current_split += 1
-            progress = int((current_split / total_splits) * 100)
-            self.progresso_atualizado.emit(progress)
+            progresso = int((current_split / total_splits) * 100)
+            self.progresso_atualizado.emit(progresso)
 
         print(indices_incorretos)
         print(len(indices_incorretos))
@@ -1074,7 +1075,7 @@ def test_inception_cross_val(X, Y):
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
 
-        if i > 1: break
+        if i > 4: break
         # Criar um novo modelo em cada iteração
         input_tensor = Input(shape=(76, 76, 3))
         base_modelo = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
