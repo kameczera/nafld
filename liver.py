@@ -1038,14 +1038,9 @@ def test_inception_cross_val(X, Y):
     grupos = np.repeat(pacientes_indices, 10)
     logo = LeaveOneGroupOut()
 
-<<<<<<< HEAD
-    accuracies = []
-
-=======
     acuracias = []
     all_y_true = []
     all_y_pred = []
->>>>>>> 334e3a720cf582c2e5d24297cde17ea6bad18408
     # Diretório para salvar os modelos
     save_dir = "saved_models"
     os.makedirs(save_dir, exist_ok=True)
@@ -1055,16 +1050,6 @@ def test_inception_cross_val(X, Y):
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
 
-<<<<<<< HEAD
-        # Criar um novo modelo em cada iteração
-        input_tensor = Input(shape=(76, 76, 3))
-        base_model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
-        x = base_model.output
-        x = GlobalAveragePooling2D()(x)
-        x = Dense(1, activation='sigmoid')(x)
-
-        model = Model(inputs=base_model.input, outputs=x)
-=======
         if i > 1: break
         # Criar um novo modelo em cada iteração
         input_tensor = Input(shape=(76, 76, 3))
@@ -1074,7 +1059,6 @@ def test_inception_cross_val(X, Y):
         x = Dense(1, activation='sigmoid')(x)
 
         model = Model(inputs=base_modelo.input, outputs=x)
->>>>>>> 334e3a720cf582c2e5d24297cde17ea6bad18408
 
         model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
