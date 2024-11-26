@@ -50,14 +50,15 @@ class ProcessadorDeImagens(QMainWindow):
         self.visualizador_imagem.cropped.connect(self.toolbar_imagens.create_image_from_cropped)  # Comunicação ImageViewer -> ToolBarImage
         self.toolbar_imagens.display.connect(self.visualizador_imagem.display_image)  # Comunicação ToolBarImage -> ImageViewer
 
-        self.menubar.add_image.connect(self.toolbar_imagens.display_image)  # Comunicação ImageViewer -> ToolBarImages
+        self.menubar.add_image.connect(self.toolbar_imagens.abrirImagem)  # Comunicação ImageViewer -> ToolBarImages
         self.menubar.crop_signal.connect(self.abrir_janela_crop)  # Comunicação MenuBar -> QMainWindow
         self.menubar.glcm_signal.connect(self.calcular_coocorenciaRadiais)
         self.menubar.histograma_signal.connect(self.mostrar_histograma)
         self.menubar.momento_Hu_signal.connect(self.exibir_momento_hu)  # Conectar o sinal ao método que irá definir o histograma
         self.menubar.save_signal.connect(self.toolbar_imagens.save_all_crops)
 
-        self.menubar.IA_signal.connect(self.mostrar_progress_window)
+        self.menubar.Xgboost_signal.connect(self.mostrar_progress_window)
+        #self.menubar.Inception_signal.connect()
 
         self.initUI()
 
@@ -84,7 +85,6 @@ class ProcessadorDeImagens(QMainWindow):
         self.progress_window = ProgressWindow(self)
         self.progress_window.show()  # Exibe a janela
 
-    # O restante da sua classe ProcessadorDeImagens permanece o mesmo
 
 
     # Interface GLCM Raízes -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -163,9 +163,6 @@ class ProcessadorDeImagens(QMainWindow):
 
         return arr
     
-
-
-
 
 class MomentHu(QWidget):
     def __init__(self, visualizador_imagem):
@@ -354,7 +351,9 @@ class MenuBar(QMenuBar):
     histograma_signal = pyqtSignal()
     momento_Hu_signal = pyqtSignal()
     save_signal = pyqtSignal()
-    IA_signal = pyqtSignal()
+    Xgboost_signal = pyqtSignal()
+    AbrirImagem_signal = pyqtSignal()
+    Inception_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -391,14 +390,16 @@ class MenuBar(QMenuBar):
         momento_hu_menu.addAction(momento_hu_action)
 
         #Menu IA
-        IA_menu = self.addMenu('IA')
-        IA_action = QAction('XGBOOST',self)
-        IA_action.triggered.connect(self.IA_signal.emit)
-        IA_menu.addAction(IA_action)
+        Xgboost_menu = self.addMenu('Xgboost')
+        Xgboost_action = QAction('XGBOOST',self)
+        Xgboost_action.triggered.connect(self.Xgboost_signal.emit)
+        Xgboost_menu.addAction(Xgboost_action)
 
+        #Inception Menu
+        Inception_menu = self.addMenu('Inception')
         Inception_action = QAction('INCEPTION', self)
-        Inception_action.triggered.connect(self.IA_signal.emit)
-        IA_menu.addAction(Inception_action)
+        Inception_action.triggered.connect(self.Inception_signal.emit)
+        Inception_menu.addAction(Inception_action)
 
     def open_image(self, file_name):
         options = QFileDialog.Options()
@@ -636,8 +637,13 @@ class ToolBarImages(QToolBar):
         self.folder_hierarchy.itemClicked.connect(self.display_image)
         self.folder_hierarchy.setHeaderHidden(True)
 
+        self.imagem_adicionadas = QTreeWidgetItem(self.folder_hierarchy)
+        self.imagem_adicionadas.setText(0, f"Imagens Adicionadas")
+
         self.cropped_imgs_node = QTreeWidgetItem(self.folder_hierarchy)
         self.cropped_imgs_node.setText(0, f"Coleção de Cortes")
+
+
 
         # ------------------------------------------------------------------------------------------- #
 
@@ -655,6 +661,9 @@ class ToolBarImages(QToolBar):
         if item.parent() is None:
             return
         # TODO: Nome dos nós folhas estranho. Mudar aqui
+        print(item.text(1))
+        print(item.text(2))
+
         self.display.emit(self.pixmap_dictionary[f"{item.text(1)}-{item.text(2)}"], f"{item.text(1)}-{item.text(2)}")
         self.has_selected_liver = False
         self.has_selected_cortex = False
@@ -719,7 +728,16 @@ class ToolBarImages(QToolBar):
             # new_liver_pix_map nao é passado por emit pois self.save_img precisa de todos esses parametros para funcionar
             self.save_img(self.crop_window.get_new_liver_pix_map(),f"ROI_{pacient_n}_{image_n}", coords_liver, coords_kidney, pacient_n, self.crop_window.get_hi(), self.crop_window.get_moment_hu(), self.crop_window.calculate_homogeneity_entropy())
             # nao precisa das ROIs do rim
+
             # self.save_img(self.organ_images["rim"]["pixmap"], f"RIM_{pacient_n}_{image_n}", coord_x, coord_y, pacient_n)
+
+
+    def abrirImagem(self,filename,crop_image):
+        child_item = QTreeWidgetItem(self.imagem_adicionadas)
+        child_item.setText(0, filename)
+        child_item.setText(1, "A")
+        child_item.setText(2, filename)
+        self.pixmap_dictionary[f"A-{filename}"] = crop_image
 
     def save_img(self, crop_qpixmap, file_name, coords_liver, coords_kidney, pacient_n, hi, hu, homogeneity_entropy):
         homogeneity, entropy = homogeneity_entropy
@@ -874,7 +892,7 @@ class ProgressComponent(QWidget):
 
         annotations = [
             [f"{TN}\nVN", f"{FP}\nFP"],
-            [f"{FN}\nFN", f"{TP}\nTP"]
+            [f"{FN}\nFN", f"{TP}\nVP"]
         ]
 
         sns.heatmap(conf_matrix, annot=annotations, fmt="s", cmap="Greens", ax=self.confusion_ax,
@@ -887,7 +905,6 @@ class ProgressComponent(QWidget):
         self.confusion_canvas.draw()
 
         
-
 
 class ProgressWindow(QDialog):
     def __init__(self, parent=None):
@@ -908,6 +925,7 @@ class ProgressWindow(QDialog):
 
         self.progress_component = ProgressComponent(self)
         self.layout.addWidget(self.progress_component)
+
 
 
 class ValidationWorker(QThread):
@@ -979,6 +997,7 @@ class ValidationWorker(QThread):
         self.confusion_ready.emit(conf_matrix)
 
 
+
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 def resize_all_images(X):
@@ -987,56 +1006,6 @@ def resize_all_images(X):
     X = np.array([resize(img, (76, 76)).numpy() for img in X])
     return X
 
-def test_inception_cross_val(X, Y):
-    X = resize_all_images(X)
-    print(X.shape)
-    pacientes_indices = np.arange(55)
-    grupos = np.repeat(pacientes_indices, 10)
-    logo = LeaveOneGroupOut()
-
-    input_tensor = Input(shape=(76, 76, 3))
-    base_model = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dense(1, activation='sigmoid')(x)
-
-    model = Model(inputs=base_model.input, outputs=x)
-    
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-    accuracies = []
-
-    # Diretório para salvar os modelos
-    save_dir = "saved_models"
-    os.makedirs(save_dir, exist_ok=True)
-
-    for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
-        print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
-
-        X_train, X_test = X[train_idx], X[test_idx]
-        Y_train, Y_test = Y[train_idx], Y[test_idx]
-
-        train_datagen = ImageDataGenerator(preprocessing_function=None)
-        test_datagen = ImageDataGenerator(preprocessing_function=None)
-
-        train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
-        test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
-    
-        with tf.device('/GPU:0'):  # Define explicitamente o uso da GPU
-            model.fit(train_generator, epochs=5, verbose=1)
-
-        accuracy = model.evaluate(test_generator, verbose=0)[1]
-        accuracies.append(accuracy)
-
-        print(f"Iteração concluída. Acurácia: {accuracy:.2f}")
-
-        # Salvar o modelo após o treinamento
-        model_save_path = os.path.join(save_dir, f"model_iteration_{i}.h5")
-        model.save(model_save_path)
-        print(f"Modelo salvo em: {model_save_path}")
-
-    print(f"Acurácia média (cross-validation): {np.mean(accuracies):.2f}")
-    print(f"Desvio padrão (cross-validation): {np.std(accuracies):.2f}")
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def obtain_steatosis_images():
@@ -1053,7 +1022,7 @@ if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
     X, Y = preparate_image_rois("./og.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    test_inception_cross_val(X, Y)
+    #test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
