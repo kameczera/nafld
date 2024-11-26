@@ -1,11 +1,13 @@
 # Integrante 01: André Fellipe Carvalho Silveira 
 # Integrante 02: Leonardo Kamei Yukio
-
+import matplotlib
+matplotlib.use("QtAgg")
 import sys
 from pathlib import Path
 from skimage.feature import graycomatrix, graycoprops
 from scipy.stats import entropy
 import seaborn as sns
+import plotly.graph_objects as go
 from PyQt5.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QVBoxLayout, QRubberBand, QApplication, QMainWindow,QAction, QFileDialog, QMenuBar,QToolBar, QTreeWidget, QTreeWidgetItem, QMessageBox,QTextEdit, QLabel, QHBoxLayout
 from PyQt5.QtWidgets import QProgressBar, QPushButton,QDialog
 from PyQt5.QtGui import QPixmap, QColor,QPainter,QImage,QWheelEvent,QMouseEvent,QPalette
@@ -42,7 +44,7 @@ class ProcessadorDeImagens(QMainWindow):
         self.toolbar_imagens = ToolBarImages(imagens)
         self.menubar = MenuBar()
         self.progress_window = None  # Janela de progresso inicializada como None
-
+        
 
         self.momentHu = MomentHu(self.visualizador_imagem) 
 
@@ -52,6 +54,7 @@ class ProcessadorDeImagens(QMainWindow):
         self.visualizador_imagem.cropped.connect(self.toolbar_imagens.create_image_from_cropped)  # Comunicação VisualizarImagem -> ToolBarImage
         self.toolbar_imagens.display.connect(self.visualizador_imagem.exibir_Imagem)  # Comunicação ToolBarImage -> VisualizarImagem
 
+        
         self.menubar.add_image.connect(self.toolbar_imagens.abrirImagem)  # Comunicação VisualizarImagem -> ToolBarImages
         self.menubar.crop_signal.connect(self.abrir_janela_crop)  # Comunicação MenuBar -> QMainWindow
         self.menubar.glcm_signal.connect(self.calcular_coocorenciaRadiais)
@@ -60,7 +63,7 @@ class ProcessadorDeImagens(QMainWindow):
         self.menubar.save_signal.connect(self.toolbar_imagens.save_all_crops)
 
         self.menubar.Xgboost_signal.connect(self.mostrar_progress_window)
-        #self.menubar.Inception_signal.connect()
+        self.menubar.Inception_signal.connect(self.exibir_Inception)
 
         self.initUI()
 
@@ -81,6 +84,13 @@ class ProcessadorDeImagens(QMainWindow):
     def exibir_momento_hu(self):
         self.momentHu.momentos_invariantes_Hu()
         self.momentHu.show()
+
+    def exibir_Inception(self):
+        self.imagens_liver = obtain_steatosis_images()
+        self.X, self.Y = preparate_image_rois("./og.csv", self.imagens_liver)
+        
+        test_inception_cross_val(self.X,self.Y)
+        
 
     def mostrar_progress_window(self):
         # Cria uma instância de ProgressWindow sem sobrescrever a janela principal
@@ -1030,9 +1040,29 @@ def resize_all_images(X):
     X = np.array([resize(img, (76, 76)).numpy() for img in X])
     return X
 
+def atualizarInceptionConfusao(idx, ax, matriz_confusaoList):
+    ax.clear()  # Limpa o eixo antes de plotar a nova matriz
+    sns.heatmap(matriz_confusaoList[idx], annot=True, fmt="d", cmap="Blues",
+                xticklabels=["Predito Negativo", "Predito Positivo"],
+                yticklabels=["Real Negativo", "Real Positivo"], ax=ax, cbar=False)
+    ax.set_title(f'Matriz de Confusão - Validação Cruzada {idx+1}')
+    ax.set_ylabel('Real')
+    ax.set_xlabel('Predito')
+    plt.draw()
+
+
+def proxima_iteracao(event, index_atual, ax, matriz_confusaoList):
+    index_atual[0] = min(index_atual[0] + 1, len(matriz_confusaoList) - 1)
+    atualizarInceptionConfusao(index_atual[0], ax, matriz_confusaoList)
+
+
+def iteracao_anterior(event, index_atual, ax, matriz_confusaoList):
+    index_atual[0] = max(index_atual[0] - 1, 0)
+    atualizarInceptionConfusao(index_atual[0], ax, matriz_confusaoList)
+
 
 def test_inception_cross_val(X, Y):
-    X = resize_all_images(X)
+    X = resize_all_images(X)  # Supondo que esta função redimensione as imagens adequadamente
     print(X.shape)
     pacientes_indices = np.arange(55)
     grupos = np.repeat(pacientes_indices, 10)
@@ -1045,7 +1075,7 @@ def test_inception_cross_val(X, Y):
     save_dir = "saved_models"
     os.makedirs(save_dir, exist_ok=True)
     
-    confusao_matrices = []  # Lista para armazenar as matrizes de confusão
+    matriz_confusaoList = []  # Lista para armazenar as matrizes de confusão
 
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
@@ -1072,23 +1102,6 @@ def test_inception_cross_val(X, Y):
         test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
 
         with tf.device('/GPU:0'):  # Define explicitamente o uso da GPU
-
-            history = model.fit(train_generator, epochs=5, verbose=1)
-            y_pred = model.predict(X_test)
-
-            # Salvar histórico de acurácia por época
-            epoch_accuracies = history.history['accuracy']
-
-            # Gráfico de acurácia por época
-            plt.figure(figsize=(6, 4))
-            plt.plot(range(1, len(epoch_accuracies) + 1), epoch_accuracies, marker='o')
-            plt.title(f'Acurácia por Época - Iteração {i+1}')
-            plt.xlabel('Época')
-            plt.ylabel('Acurácia')
-            plt.xticks(range(1, len(epoch_accuracies) + 1))
-            plt.grid()
-            plt.show()
-            
             model.fit(train_generator, epochs=5, verbose=1)
             y_pred = model.predict(X_test)
 
@@ -1113,7 +1126,7 @@ def test_inception_cross_val(X, Y):
 
         # Calcular a matriz de confusão
         matriz_confusao = confusion_matrix(all_y_true, all_y_pred, labels=[0, 1])
-        confusao_matrices.append(matriz_confusao)  # Salvar a matriz de confusão
+        matriz_confusaoList.append(matriz_confusao)  # Salvar a matriz de confusão
 
         if matriz_confusao.shape == (2, 2):
             TN, FP, FN, TP = matriz_confusao.ravel()
@@ -1135,39 +1148,14 @@ def test_inception_cross_val(X, Y):
         print(resultado_mensagem)
 
     # Exibição interativa das matrizes de confusão
-
     fig, ax = plt.subplots(figsize=(6, 6))
-    current_idx = [0]  # Variável para controlar qual iteração estamos visualizando
-
-    def update(idx):
-        ax.clear()  # Limpa o eixo antes de plotar a nova matriz
-        sns.heatmap(confusao_matrices[idx], annot=True, fmt="d", cmap="Blues", 
-                    xticklabels=["Predito Negativo", "Predito Positivo"], 
-                    yticklabels=["Real Negativo", "Real Positivo"], ax=ax,cbar=False)
-        ax.set_title(f'Matriz de Confusão - Validação Cruzada {idx+1}')
-        ax.set_ylabel('Real')
-        ax.set_xlabel('Predito')
-        plt.draw()
-
-    def next_iteration(event):
-        current_idx[0] = min(current_idx[0] + 1, len(confusao_matrices) - 1)
-        update(current_idx[0])
-
-    def prev_iteration(event):
-        current_idx[0] = max(current_idx[0] - 1, 0)
-        update(current_idx[0])
-
-    # Criar botões de navegação apenas uma vez
-    axprev = plt.axes([0.1, 0.01, 0.1, 0.05])
-    axnext = plt.axes([0.8, 0.01, 0.1, 0.05])
-    btnprev = Button(axprev, 'Anterior')
-    btnnext = Button(axnext, 'Próxima')
-
-    btnprev.on_clicked(prev_iteration)
-    btnnext.on_clicked(next_iteration)
-
-    update(0)  # Exibir a primeira matriz de confusão
+    index_atual = [0]  # Controlador para navegação entre matrizes
     plt.subplots_adjust(bottom=0.15)
+
+    # Conectar os eventos de tecla para navegação entre as matrizes
+    fig.canvas.mpl_connect('key_press_event', lambda event: proxima_iteracao(event, index_atual, ax, matriz_confusaoList) if event.key == 'right' else iteracao_anterior(event, index_atual, ax, matriz_confusaoList) if event.key == 'left' else None)
+
+    atualizarInceptionConfusao(0, ax, matriz_confusaoList)  # Exibir a primeira matriz de confusão
     plt.show()
 
     print(f"Acurácia média (cross-validation): {np.mean(acuracias):.2f}")
@@ -1190,7 +1178,7 @@ if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
     X, Y = preparate_image_rois("./og.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    # test_inception_cross_val(X, Y)
+    #test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
