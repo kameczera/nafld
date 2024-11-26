@@ -120,6 +120,7 @@ class ProcessadorDeImagens(QMainWindow):
         plt.show()
 
     def atualizar_graficos(self):
+        inicio = time.time()
         for ax in self.axs.flatten():
             ax.clear()
 
@@ -139,6 +140,8 @@ class ProcessadorDeImagens(QMainWindow):
                          f'Homogeneidade: {glcm_homogeneidade:.4f},      Entropia: {glcm_entropia:.4f}')
             ax.axis('off')
 
+        fim = time.time()
+        print("Tempo de Execucao GLCM: ", fim-inicio)
         plt.suptitle(f'GLCM para Distância {distancia}')
         plt.draw()
 
@@ -189,6 +192,7 @@ class MomentHu(QWidget):
         self.layout.addWidget(self.text_edit)
 
     def momentos_invariantes_Hu(self):
+        inicio = time.time()
         pixmap_atual = self.visualizador_imagem.get_pixmap()
         imagem = self.qpixmap_to_numpy(pixmap_atual) 
 
@@ -205,6 +209,10 @@ class MomentHu(QWidget):
             self.text_edit.setPlainText(texto)
         else:
             print("Erro: A imagem não pôde ser convertida.")
+
+        fim = time.time()
+        print("Tempo de Execucao Hu: ", fim-inicio)
+      
 
     def qpixmap_to_numpy(self, pixmap):
         qimage = pixmap.toImage()
