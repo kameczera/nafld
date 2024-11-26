@@ -1072,6 +1072,23 @@ def test_inception_cross_val(X, Y):
         test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
 
         with tf.device('/GPU:0'):  # Define explicitamente o uso da GPU
+
+            history = model.fit(train_generator, epochs=5, verbose=1)
+            y_pred = model.predict(X_test)
+
+            # Salvar histórico de acurácia por época
+            epoch_accuracies = history.history['accuracy']
+
+            # Gráfico de acurácia por época
+            plt.figure(figsize=(6, 4))
+            plt.plot(range(1, len(epoch_accuracies) + 1), epoch_accuracies, marker='o')
+            plt.title(f'Acurácia por Época - Iteração {i+1}')
+            plt.xlabel('Época')
+            plt.ylabel('Acurácia')
+            plt.xticks(range(1, len(epoch_accuracies) + 1))
+            plt.grid()
+            plt.show()
+            
             model.fit(train_generator, epochs=5, verbose=1)
             y_pred = model.predict(X_test)
 
@@ -1095,10 +1112,14 @@ def test_inception_cross_val(X, Y):
         std_acuracias = np.std(acuracias)
 
         # Calcular a matriz de confusão
-        matriz_confusao = confusion_matrix(all_y_true, all_y_pred)
+        matriz_confusao = confusion_matrix(all_y_true, all_y_pred, labels=[0, 1])
         confusao_matrices.append(matriz_confusao)  # Salvar a matriz de confusão
 
-        TN, FP, FN, TP = matriz_confusao.ravel()
+        if matriz_confusao.shape == (2, 2):
+            TN, FP, FN, TP = matriz_confusao.ravel()
+        else:
+            print(f"Matriz de confusão inesperada: {matriz_confusao}")
+            TN, FP, FN, TP = 0, 0, 0, 0  # Ou outra lógica para lidar com o caso
 
         acuracia = (TP + TN) / (TP + TN + FP + FN)
         sensibilidade = TP / (TP + FN)
