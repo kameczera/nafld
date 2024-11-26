@@ -162,10 +162,6 @@ class ProcessadorDeImagens(QMainWindow):
         arr = np.array(ptr).reshape((height, width))
 
         return arr
-    
-
-
-
 
 class MomentHu(QWidget):
     def __init__(self, visualizador_imagem):
@@ -210,9 +206,6 @@ class MomentHu(QWidget):
 
         return arr
     
-
-
-
 class CropWindow(QWidget):
 
     def __init__(self, organ_images):
@@ -225,18 +218,20 @@ class CropWindow(QWidget):
 
     def initUI(self, organ_images):
         self.setWindowTitle("Recorte de Imagem")
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()  # Layout principal
 
-        # Crie um layout horizontal para as imagens
+        # Layout horizontal para as imagens
         images_layout = QHBoxLayout()
 
         for organ, data in organ_images.items():
             pixmap = data["pixmap"]
             coords = data["coords"]
 
+            # Item do QGraphics
             pixmap_item = QGraphicsPixmapItem(pixmap)
             self.scene.addItem(pixmap_item)
 
+            # Layout para cada imagem
             image_layout = QVBoxLayout()
             image_label = QLabel(organ)
             image_label.setAlignment(Qt.AlignCenter)
@@ -248,35 +243,56 @@ class CropWindow(QWidget):
             pixmap_view.setScene(pixmap_scene)
 
             image_layout.addWidget(pixmap_view)
-
             images_layout.addLayout(image_layout)
 
-        # Fígado com Hi ------------------------------------------------------------- #
+        # Adicionar layout das imagens ao layout principal
+        main_layout.addLayout(images_layout)
 
+        # Fígado com Hi
         self.new_liver_pix_map = self.calculate_hi(organ_images)
         self.new_liver_numpy = self.qpixmap_to_numpy(self.new_liver_pix_map)
-        momentosHu = self.get_moment_hu()
-        homogeneity_entropy = self.calculate_homogeneity_entropy()
+        self.momentosHu = self.get_moment_hu()
+        self.homogeneity, self.entropy = self.calculate_homogeneity_entropy()
+
+        # Obter a previsão
+        prediction, probabilities = self.test_new_liver_pixmap()
+
+        # Layout para o fígado com Hi
+        liver_layout = QVBoxLayout()
         pixmap_item = QGraphicsPixmapItem(self.new_liver_pix_map)
         self.scene.addItem(pixmap_item)
 
-        image_layout = QVBoxLayout()
-        image_label = QLabel("Fígado com Hi")
-        image_label.setAlignment(Qt.AlignCenter)
-        image_layout.addWidget(image_label)
         pixmap_view = QGraphicsView()
         pixmap_scene = QGraphicsScene()
         pixmap_scene.addItem(pixmap_item)
         pixmap_view.setScene(pixmap_scene)
-        image_layout.addWidget(pixmap_view)
-        images_layout.addLayout(image_layout)
 
-        # ------------------------------------------------------------------------ #
+        liver_layout.addWidget(pixmap_view)
 
-        layout.addLayout(images_layout)
-        layout.addWidget(self.view)
-        self.setLayout(layout)
+        # Exibir os resultados da previsão
+        result_label = QLabel(f"Previsão: {'Saudável' if prediction == 0 else 'Doente'}\n"
+                            f"Probabilidades (Saudável/Doente): {probabilities[0]:.2f}/{probabilities[1]:.2f}")
+        result_label.setAlignment(Qt.AlignCenter)
+        liver_layout.addWidget(result_label)
+
+        # Adicionar layout do fígado ao layout principal
+        main_layout.addLayout(liver_layout)
+
+        # Configurar o layout principal na janela
+        self.setLayout(main_layout)
         self.show()
+
+    def test_new_liver_pixmap(self):
+        X, Y = preparate_descriptors("./og.csv")
+        X_test = np.array([self.momentosHu + self.homogeneity + self.entropy])  # Garantir listas homogêneas
+
+        model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+        model.fit(X, Y)
+
+        y_pred = model.predict(X_test)
+        y_pred_proba = model.predict_proba(X_test)
+
+        return y_pred[0], y_pred_proba[0]
 
     def qpixmap_to_numpy(self, pixmap):
         qimage = pixmap.toImage()
@@ -1052,7 +1068,7 @@ if __name__ == '__main__':
     imagens_liver = obtain_steatosis_images()
     X, Y = preparate_image_rois("./og.csv", imagens_liver)
     # test_results = test_xgboost_cross_val(X, Y)
-    test_inception_cross_val(X, Y)
+    # test_inception_cross_val(X, Y)
     app = QApplication(sys.argv)
     ex = ProcessadorDeImagens(imagens_liver)
 
