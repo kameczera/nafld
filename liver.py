@@ -961,8 +961,6 @@ class ProgressWindow(QDialog):
 
 
 class Xgboost(QThread):
-
-
     progresso_atualizado = pyqtSignal(int)
     trabalho_finalizado = pyqtSignal(str)
     confusao_pronta = pyqtSignal(np.ndarray)
@@ -1064,8 +1062,7 @@ def iteracao_anterior(event, index_atual, ax, matriz_confusaoList):
 
 
 def test_inception_cross_val(X, Y):
-    
-    X = resize_all_images(X) 
+    X = resize_all_images(X)
     print(X.shape)
     pacientes_indices = np.arange(55)
     grupos = np.repeat(pacientes_indices, 10)
@@ -1074,64 +1071,56 @@ def test_inception_cross_val(X, Y):
     acuracias = []
     all_y_true = []
     all_y_pred = []
-    # Diretório para salvar os modelos
+
     save_dir = "saved_models"
     os.makedirs(save_dir, exist_ok=True)
     
-    matriz_confusaoList = []  # Lista para armazenar as matrizes de confusão da Inception
+    matriz_confusaoList = []
+    epoch_accuracies = []  # Lista para salvar acurácias por época
 
     for i, (train_idx, test_idx) in enumerate(logo.split(X, Y, grupos)):
         print(f"Iniciando iteração para o grupo de treino {train_idx[:5]}...")
-        # #
-        # if i > 4: break
-        # # Criar um novo modelo em cada iteração
-        # input_tensor = Input(shape=(76, 76, 3))
-        # base_modelo = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
-        # x = base_modelo.output
-        # x = GlobalAveragePooling2D()(x)
-        # x = Dense(1, activation='sigmoid')(x)
-        # model = Model(inputs=base_modelo.input, outputs=x)
-        #
-        model = load_model(f"./saved_models/model_iteration_{i}.h5")
-
         
-
-        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
+        # Carregar ou criar modelo
+        model_path = f"./saved_models/model_iteration_{i}.h5"
         X_train, X_test = X[train_idx], X[test_idx]
         Y_train, Y_test = Y[train_idx], Y[test_idx]
+        if os.path.exists(model_path):
+            model = load_model(model_path)
+            with tf.device('/GPU:0'):
+                y_pred = model.predict(X_test)
+                y_pred_class = (y_pred > 0.5).astype(int)
 
-        #
-        # train_datagen = ImageDataGenerator(preprocessing_function=None)
-        # test_datagen = ImageDataGenerator(preprocessing_function=None)
-        # train_generator = train_datagen.flow(X_train, Y_train, batch_size=32)
-        # test_generator = test_datagen.flow(X_test, Y_test, batch_size=32)
-        #
-        with tf.device('/GPU:0'):
-            # model.fit(train_generator, epochs=5, verbose=1)
-            y_pred = model.predict(X_test)
+                all_y_true.extend(Y_test)
+                all_y_pred.extend(y_pred_class)
 
-            y_pred_class = (y_pred > 0.5).astype(int)  # Converte probabilidades para 0 ou 1
+            # Adicionar as acurácias de cada época
+        else:
+            # Crie seu modelo Inception personalizado
+            input_tensor = Input(shape=(76, 76, 3))
+            base_modelo = InceptionV3(weights='imagenet', include_top=False, input_tensor=input_tensor)
+            x = base_modelo.output
+            x = GlobalAveragePooling2D()(x)
+            x = Dense(1, activation='sigmoid')(x)
+            model = Model(inputs=base_modelo.input, outputs=x)
+            model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+            history = model.fit(X_train, Y_train, epochs=3, batch_size=32, validation_data=(X_test, Y_test))
+            print(history.history['accuracy'])
+            acc = history.history['accuracy']
 
-            all_y_true.extend(Y_test)
-            all_y_pred.extend(y_pred_class)  
-           
-        #-----------------------------------------------------
-        # acuracia = model.evaluate(test_generator, verbose=0)[1]
-        # acuracias.append(acuracia)
-        # print(f"Iteração concluída. Acurácia: {acuracia:.2f}")
-        # # Salvando o modelo após o treinamento
-        # salvar_modelo_path = os.path.join(save_dir, f"model_iteration_{i}.h5")
-        # model.save(salvar_modelo_path)
-        # print(f"Modelo salvo em: {salvar_modelo_path}")
-        # precisao_media = np.mean(acuracias)
-        # std_acuracias = np.std(acuracias)
-        #--------------------------------------------------------
-
-        # Calcular a matriz de confusão
+            plt.figure(figsize=(10, 6))
+            plt.plot(acc, label=f'Iteração {i + 1}')
+            plt.title('Acurácia por Época')
+            plt.xlabel('Épocas')
+            plt.ylabel('Acurácia')
+            plt.legend()
+            plt.grid(True)
+            plt.show(block=False)
+        
+        # Matriz de confusão
         matriz_confusao = confusion_matrix(all_y_true, all_y_pred, labels=[0, 1])
-        matriz_confusaoList.append(matriz_confusao)  # Salvar a matriz de confusão
-
+        matriz_confusaoList.append(matriz_confusao)
+        
         if matriz_confusao.shape == (2, 2):
             TN, FP, FN, TP = matriz_confusao.ravel()
         else:
@@ -1139,17 +1128,8 @@ def test_inception_cross_val(X, Y):
             TN, FP, FN, TP = 0, 0, 0, 0  
 
         acuracia = (TP + TN) / (TP + TN + FP + FN)
-        sensibilidade = TP / (TP + FN)
-        especificidade = TN / (TN + FP)
-        resultado_mensagem = (
-            f"Métricas da matriz de confusão:\n"
-            f"Acurácia: {acuracia:.2f}\n"
-            f"Sensibilidade: {sensibilidade:.2f}\n"
-            f"Especificidade: {especificidade:.2f}"
-        )
-        print(resultado_mensagem)
+        print(f"Acurácia (grupo {i}): {acuracia:.2f}")
 
-    # Exibição interativa das matrizes de confusão
     fig, ax = plt.subplots(figsize=(6, 6))
     index_atual = [0]  # Controlador para navegação entre matrizes
     plt.subplots_adjust(bottom=0.15)
@@ -1158,10 +1138,9 @@ def test_inception_cross_val(X, Y):
     fig.canvas.mpl_connect('key_press_event', lambda event: proxima_iteracao(event, index_atual, ax, matriz_confusaoList) if event.key == 'right' else iteracao_anterior(event, index_atual, ax, matriz_confusaoList) if event.key == 'left' else None)
 
     atualizarInceptionConfusao(0, ax, matriz_confusaoList)  # Exibir a primeira matriz de confusão
-    plt.show()
+    plt.show(block=False)
     print(f"Acurácia média (cross-validation): {np.mean(acuracias):.2f}")
     print(f"Desvio padrão (cross-validation): {np.std(acuracias):.2f}")
-
 
 
 #Obter Conjunto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
